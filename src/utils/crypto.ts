@@ -1,4 +1,6 @@
-import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import type { FilePatch } from '../types/remediation.js';
 import type { HumanApproval } from '../types/human-approval.js';
 import type { RemediationSpec } from '../types/remediation.js';
@@ -62,10 +64,34 @@ export function computeDiffHash(input: string | FilePatch[]): string {
 }
 
 /**
+ * Computes a cryptographic hash binding the complete remediation specification:
+ * diffHash + targetRepository + baseBranch + targetBranch + verificationCommands + incidentId.
+ * This ensures parameters cannot be tampered with even if the diff remains unchanged.
+ */
+export function computeSpecHash(
+  spec: Pick<RemediationSpec, 'id' | 'incidentId' | 'targetRepository' | 'baseBranch' | 'targetBranch' | 'diffHash' | 'verificationCommands'>
+): string {
+  const hash = createHash('sha256');
+  const sortedCommands = [...spec.verificationCommands].sort();
+  const serialized = [
+    spec.id,
+    spec.incidentId,
+    spec.targetRepository,
+    spec.baseBranch,
+    spec.targetBranch,
+    spec.diffHash,
+    sortedCommands.join(';')
+  ].join('|');
+  hash.update(serialized, 'utf8');
+  return hash.digest('hex');
+}
+
+/**
  * Generates an HMAC-SHA256 signature binding the human approval to:
  * - unique approvalId (UUID)
  * - specId
  * - diffHash
+ * - specHash (optional but recommended for parameter integrity)
  * - userId
  * - approvedAt
  * - nonce
@@ -77,30 +103,77 @@ export function computeApprovalSignature(
   userId: string,
   approvedAt: string,
   nonce: string,
-  secretKey?: string
+  secretKey?: string,
+  specHash?: string
 ): string {
   const secret = getApprovalSecret(secretKey);
-  const payload = [approvalId, specId, diffHash, userId, approvedAt, nonce].join('|');
+  const payload = [
+    approvalId,
+    specId,
+    diffHash,
+    specHash ?? '',
+    userId,
+    approvedAt,
+    nonce
+  ].join('|');
   return createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
 }
 
 /**
- * In-memory / persistent tracker for used approval IDs and nonces
- * to guarantee that approvals cannot be replayed.
+ * Thread-safe and persistent nonce tracker to guarantee that approvals cannot be replayed.
+ * Features atomic consume() to prevent TOCTOU concurrency race conditions.
  */
 export class ApprovalNonceTracker {
   private consumedApprovals = new Set<string>();
+  private persistenceFilePath?: string;
+
+  constructor(persistenceFilePath?: string) {
+    if (persistenceFilePath) {
+      this.persistenceFilePath = path.resolve(persistenceFilePath);
+    }
+  }
+
+  public async init(): Promise<void> {
+    if (!this.persistenceFilePath) return;
+    try {
+      const content = await fs.readFile(this.persistenceFilePath, 'utf8');
+      const lines = content.trim().split('\n').filter(Boolean);
+      for (const line of lines) {
+        this.consumedApprovals.add(line.trim());
+      }
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+
+  /**
+   * Atomically checks if the approval was already consumed. If not, records it.
+   * Returns true if successfully consumed (was NOT replayed), false if replayed.
+   */
+  public consume(approvalId: string, nonce: string): boolean {
+    const key = `${approvalId}:${nonce}`;
+    if (this.consumedApprovals.has(key)) {
+      return false; // Already consumed! Replay attack.
+    }
+    this.consumedApprovals.add(key);
+
+    if (this.persistenceFilePath) {
+      // Append non-blocking to persistent file
+      fs.appendFile(this.persistenceFilePath, key + '\n', 'utf8').catch(() => {});
+    }
+    return true;
+  }
 
   public isConsumed(approvalId: string, nonce: string): boolean {
     return this.consumedApprovals.has(`${approvalId}:${nonce}`);
   }
 
-  public record(approvalId: string, nonce: string): void {
-    this.consumedApprovals.add(`${approvalId}:${nonce}`);
-  }
-
   public clear(): void {
     this.consumedApprovals.clear();
+    if (this.persistenceFilePath) {
+      fs.unlink(this.persistenceFilePath).catch(() => {});
+    }
   }
 }
 
@@ -115,10 +188,10 @@ export interface VerificationOptions {
 
 /**
  * Verifies that a human approval:
- * 1. Matches targeted specId and diffHash exactly.
+ * 1. Matches targeted specId, diffHash, and specHash exactly.
  * 2. Originates from an authorized SWITCH_ROOM channel.
  * 3. Has a valid timestamp (not expired, not in future).
- * 4. Has not been replayed (tracked via nonceTracker).
+ * 4. Has not been replayed (atomically tracked via nonceTracker).
  * 5. Possesses a valid HMAC signature computed with the secret key.
  */
 export function verifyApprovalIntegrity(
@@ -145,6 +218,18 @@ export function verifyApprovalIntegrity(
     };
   }
 
+  // If specHash is present in the approval or spec, verify full specification integrity
+  if (approval.specHash || spec.specHash) {
+    const computed = computeSpecHash(spec);
+    const expectedSpecHash = approval.specHash ?? spec.specHash;
+    if (computed.toLowerCase() !== expectedSpecHash?.toLowerCase()) {
+      return {
+        valid: false,
+        reason: `Approval specHash does not match computed spec parameters (branches or verification commands were altered)`
+      };
+    }
+  }
+
   if (approval.actor.channel !== 'SWITCH_ROOM') {
     return {
       valid: false,
@@ -168,13 +253,6 @@ export function verifyApprovalIntegrity(
     };
   }
 
-  if (tracker.isConsumed(approval.approvalId, approval.nonce)) {
-    return {
-      valid: false,
-      reason: `Replay attack detected: approvalId '${approval.approvalId}' has already been processed`
-    };
-  }
-
   const expectedSignature = computeApprovalSignature(
     approval.approvalId,
     approval.specId,
@@ -182,7 +260,8 @@ export function verifyApprovalIntegrity(
     approval.actor.userId,
     approval.approvedAt,
     approval.nonce,
-    secret
+    secret,
+    approval.specHash
   );
 
   if (approval.signature !== expectedSignature) {
@@ -192,26 +271,36 @@ export function verifyApprovalIntegrity(
     };
   }
 
-  // Record approval to prevent future replay
-  tracker.record(approval.approvalId, approval.nonce);
+  // Atomically consume the nonce (guarantees no concurrent TOCTOU race)
+  const consumed = tracker.consume(approval.approvalId, approval.nonce);
+  if (!consumed) {
+    return {
+      valid: false,
+      reason: `Replay attack detected: approvalId '${approval.approvalId}' has already been processed`
+    };
+  }
+
   return { valid: true };
 }
 
 /**
- * Patterns and key names that represent sensitive credentials or secrets.
+ * Patterns and key names that represent sensitive credentials, tokens, or connection strings.
  */
-const SENSITIVE_KEY_REGEX = /(token|api[_-]?key|secret|password|passwd|authorization|bearer|credential|jwt|private[_-]?key)/i;
+const SENSITIVE_KEY_REGEX = /(token|api[_-]?key|secret|password|passwd|authorization|bearer|credential|jwt|private[_-]?key|client[_-]?secret|session[_-]?token|auth[_-]?header|db[_-]?pass)/i;
+
 const SENSITIVE_VALUE_REGEXES = [
-  /gh[pousr]_[A-Za-z0-9_]{36,255}/, // GitHub tokens
-  /Bearer\s+[A-Za-z0-9_\-\.]{16,}/i,  // Bearer tokens
-  /sk-[A-Za-z0-9_\-]{20,}/,          // OpenAI/Anthropic style secret keys
-  /-----BEGIN\s+([A-Z\s]+)KEY-----/i // PEM private keys
+  /gh[pousr]_[A-Za-z0-9_]{36,255}/g,                                             // GitHub tokens
+  /Bearer\s+[A-Za-z0-9_\-\.]{16,}/gi,                                            // Bearer tokens
+  /sk-[A-Za-z0-9_\-]{20,}/g,                                                     // OpenAI/Anthropic secret keys
+  /(-----BEGIN\s+([A-Z\s]+)KEY-----[\s\S]*?-----END\s+([A-Z\s]+)KEY-----)/gi,  // Full multiline PEM private keys
+  /[a-zA-Z0-9+.-]+:\/\/[^:]+:[^@]+@[^\s"']+/g                                    // Connection strings with credentials
 ];
 
 /**
  * Recursively scans and redacts sensitive credentials, tokens, and keys from any object.
+ * Protected against circular references via a WeakSet.
  */
-export function sanitizeAuditPayload(data: unknown): unknown {
+export function sanitizeAuditPayload(data: unknown, seen = new WeakSet<object>()): unknown {
   if (data === null || data === undefined) return data;
 
   if (typeof data === 'string') {
@@ -222,17 +311,22 @@ export function sanitizeAuditPayload(data: unknown): unknown {
     return sanitized;
   }
 
-  if (Array.isArray(data)) {
-    return data.map((item) => sanitizeAuditPayload(item));
-  }
-
   if (typeof data === 'object') {
+    if (seen.has(data as object)) {
+      return '[CIRCULAR_REF]';
+    }
+    seen.add(data as object);
+
+    if (Array.isArray(data)) {
+      return data.map((item) => sanitizeAuditPayload(item, seen));
+    }
+
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
       if (SENSITIVE_KEY_REGEX.test(key)) {
         result[key] = '[REDACTED]';
       } else {
-        result[key] = sanitizeAuditPayload(val);
+        result[key] = sanitizeAuditPayload(val, seen);
       }
     }
     return result;
@@ -242,12 +336,13 @@ export function sanitizeAuditPayload(data: unknown): unknown {
 }
 
 /**
- * Deterministically computes the SHA-256 hash of an audit log entry for tamper evidence.
+ * Computes an HMAC-SHA256 (or SHA-256 if unkeyed) hash of an audit log entry for tamper evidence.
+ * Using HMAC prevents attackers with file write access from rewriting the entire log file offline.
  */
 export function computeAuditEntryHash(
-  entry: Omit<AuditLogEntry, 'hash'>
+  entry: Omit<AuditLogEntry, 'hash'>,
+  secretKey?: string
 ): string {
-  const hash = createHash('sha256');
   const canonicalPayload = JSON.stringify(entry.payload, Object.keys(entry.payload).sort());
   const serialized = [
     entry.id,
@@ -262,6 +357,8 @@ export function computeAuditEntryHash(
     entry.prevHash
   ].join('|');
 
-  hash.update(serialized, 'utf8');
-  return hash.digest('hex');
+  if (secretKey) {
+    return createHmac('sha256', secretKey).update(serialized, 'utf8').digest('hex');
+  }
+  return createHash('sha256').update(serialized, 'utf8').digest('hex');
 }

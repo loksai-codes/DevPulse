@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHmac } from 'node:crypto';
 
 export const AuthorizedRoleSchema = z.enum(['MAINTAINER', 'ADMIN', 'SECURITY_LEAD']);
 export type AuthorizedRole = z.infer<typeof AuthorizedRoleSchema>;
@@ -20,6 +21,7 @@ export const HumanApprovalSchema = z.object({
   approvalId: z.string().uuid('approvalId must be a valid UUID to prevent replay attacks'),
   specId: z.string().min(1, 'Specification ID is required'),
   diffHash: z.string().regex(/^[a-f0-9]{64}$/i, 'diffHash must match exact 64-char SHA-256 string'),
+  specHash: z.string().regex(/^[a-f0-9]{64}$/i, 'specHash must match exact 64-char SHA-256 string').optional(),
   actor: HumanIdentitySchema,
   decision: ApprovalDecisionSchema,
   approvedAt: z.string().datetime({ message: 'approvedAt must be an ISO-8601 string' }),
@@ -31,8 +33,9 @@ export const HumanApprovalSchema = z.object({
 export type HumanApproval = z.infer<typeof HumanApprovalSchema>;
 
 /**
- * Trusted event metadata directly emitted by Switch Console / Room Gateway.
- * Cannot be forged by message contents or unprivileged participants.
+ * Authenticated event envelope emitted by the Switch Console Gateway.
+ * Carries a gateway-level cryptographic HMAC signature preventing
+ * unauthenticated actors from forging event metadata.
  */
 export const SwitchRoomEventMetadataSchema = z.object({
   roomId: z.string().min(1),
@@ -42,17 +45,52 @@ export const SwitchRoomEventMetadataSchema = z.object({
     description: 'Only human participants may approve; bot/agent senders are rejected'
   }),
   roomRole: AuthorizedRoleSchema,
-  timestamp: z.string().datetime()
+  timestamp: z.string().datetime(),
+  gatewaySignature: z.string().min(1, 'Cryptographic signature from Switch Gateway is required')
 });
 export type SwitchRoomEventMetadata = z.infer<typeof SwitchRoomEventMetadataSchema>;
 
 /**
- * Validates whether a Switch room event genuinely represents an authorized human operator.
+ * Computes the expected Switch Console Gateway HMAC signature for a room event envelope.
+ */
+export function computeGatewaySignature(
+  event: Omit<SwitchRoomEventMetadata, 'gatewaySignature'>,
+  gatewaySecret: string
+): string {
+  const payload = [
+    event.roomId,
+    event.senderId,
+    event.senderUsername,
+    event.senderType,
+    event.roomRole,
+    event.timestamp
+  ].join(':');
+  return createHmac('sha256', gatewaySecret).update(payload, 'utf8').digest('hex');
+}
+
+/**
+ * Validates whether a Switch room event genuinely represents an authorized human operator:
+ * 1. Verifies the cryptographic gateway signature (proves authenticity, not forged).
+ * 2. Verifies senderType is strictly 'human'.
+ * 3. Verifies senderId against the allowed maintainer list.
  */
 export function verifyTrustedRoomAuthorization(
   event: SwitchRoomEventMetadata,
-  allowedUserIds?: string[]
+  allowedUserIds?: string[],
+  gatewaySecret?: string
 ): { authorized: boolean; reason?: string } {
+  // If gatewaySecret is supplied, verify the cryptographic proof of authenticity
+  if (gatewaySecret) {
+    const { gatewaySignature, ...unsigned } = event;
+    const expected = computeGatewaySignature(unsigned, gatewaySecret);
+    if (gatewaySignature !== expected) {
+      return {
+        authorized: false,
+        reason: 'Invalid Switch Gateway signature. Event origin is unverified or forged.'
+      };
+    }
+  }
+
   if (event.senderType !== 'human') {
     return {
       authorized: false,

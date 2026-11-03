@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RiskReportSchema } from './risk-report.js';
+import { validateSafeRepoPath } from '../utils/path-validator.js';
 
 export const PatchActionSchema = z.enum(['MODIFY', 'CREATE', 'DELETE']);
 export type PatchAction = z.infer<typeof PatchActionSchema>;
@@ -8,12 +9,9 @@ export const FilePatchSchema = z.object({
   path: z
     .string()
     .min(1, 'File path is required')
-    .refine((p) => !p.includes('..'), {
-      message: 'Path traversal (..) is not permitted in patch paths'
-    })
-    .refine((p) => !p.startsWith('/') && !p.startsWith('\\'), {
-      message: 'Patch paths must be relative to repository root'
-    }),
+    .refine((p) => validateSafeRepoPath(p).safe, (p) => ({
+      message: validateSafeRepoPath(p).reason ?? 'Invalid or unsafe repository path'
+    })),
   action: PatchActionSchema,
   patchDiff: z
     .string()
@@ -57,6 +55,7 @@ export const RemediationSpecSchema = z.object({
   rootCause: z.string().min(1, 'Root cause cannot be empty'),
   patches: z.array(FilePatchSchema).min(1, 'At least one file patch must be provided'),
   diffHash: z.string().regex(/^[a-f0-9]{64}$/i, 'diffHash must be a 64-character SHA-256 hexadecimal string'),
+  specHash: z.string().regex(/^[a-f0-9]{64}$/i, 'specHash must be a 64-character SHA-256 hexadecimal string').optional(),
   riskReport: RiskReportSchema,
   verificationCommands: z.array(z.string().min(1)).min(1, 'At least one verification command is required'),
   status: RemediationStatusSchema,

@@ -4,7 +4,7 @@
   "description": "Autonomous PR and thread engagement engine for Switch Console with persistent incident memory and HITL governance",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsc",
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

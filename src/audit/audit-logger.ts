@@ -15,6 +15,7 @@ import {
 
 export interface AuditLoggerOptions {
   filePath: string;
+  secretKey?: string;
 }
 
 export interface LogParams {
@@ -27,12 +28,13 @@ export interface LogParams {
 
 export interface ChainVerificationResult {
   valid: boolean;
-  brokenSequence?: number;
-  reason?: string;
+  brokenSequence?: number | undefined;
+  reason?: string | undefined;
 }
 
 export class AuditLogger extends EventEmitter {
   private filePath: string;
+  private secretKey?: string;
   private currentSequence: number = 0;
   private lastHash: string = GENESIS_HASH;
   private initPromise: Promise<void> | null = null;
@@ -42,6 +44,9 @@ export class AuditLogger extends EventEmitter {
   constructor(options: AuditLoggerOptions) {
     super();
     this.filePath = path.resolve(options.filePath);
+    if (options.secretKey) {
+      this.secretKey = options.secretKey;
+    }
   }
 
   /**
@@ -102,7 +107,7 @@ export class AuditLogger extends EventEmitter {
       const timestamp = new Date().toISOString();
       const id = randomUUID();
 
-      // Automatically sanitize sensitive credentials, keys, and tokens
+      // Automatically sanitize sensitive credentials, keys, and tokens (circular-safe)
       const sanitizedPayload = sanitizeAuditPayload(params.payload) as Record<string, unknown>;
 
       const candidate = {
@@ -117,7 +122,7 @@ export class AuditLogger extends EventEmitter {
         prevHash: this.lastHash
       };
 
-      const entryHash = computeAuditEntryHash(candidate);
+      const entryHash = computeAuditEntryHash(candidate, this.secretKey);
 
       const entry: AuditLogEntry = {
         ...candidate,
@@ -177,10 +182,10 @@ export class AuditLogger extends EventEmitter {
 
   /**
    * Verifies the cryptographic integrity of the entire audit chain:
-   * 1. Detects file truncation or corrupted JSON lines.
+   * 1. Detects file truncation or corrupted partial JSON lines.
    * 2. Detects sequence gaps or sequence duplicates.
    * 3. Verifies hash chain integrity (entry[N].prevHash === entry[N-1].hash).
-   * 4. Recomputes and verifies each entry's SHA-256 hash against its fields.
+   * 4. Recomputes and verifies each entry's HMAC/SHA-256 hash against its fields.
    */
   public async verifyChainIntegrity(): Promise<ChainVerificationResult> {
     const { entries, error, errorLine } = await this.getEntries();
@@ -188,7 +193,7 @@ export class AuditLogger extends EventEmitter {
     if (error) {
       return {
         valid: false,
-        brokenSequence: errorLine,
+        ...(errorLine !== undefined ? { brokenSequence: errorLine } : {}),
         reason: `File corruption or truncation: ${error}`
       };
     }
@@ -220,7 +225,7 @@ export class AuditLogger extends EventEmitter {
       }
 
       const { hash: storedHash, ...entryWithoutHash } = entry;
-      const recomputedHash = computeAuditEntryHash(entryWithoutHash);
+      const recomputedHash = computeAuditEntryHash(entryWithoutHash, this.secretKey);
 
       if (storedHash !== recomputedHash) {
         return {
