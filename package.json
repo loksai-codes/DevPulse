@@ -1,0 +1,30 @@
+{
+  "name": "devpulse",
+  "version": "0.1.0",
+  "description": "Autonomous PR and thread engagement engine for Switch Console with persistent incident memory and HITL governance",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "switch-console",
+    "ai-agent",
+    "pull-request",
+    "security",
+    "hitl",
+    "incident-response"
+  ],
+  "author": "DevPulse Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
+
