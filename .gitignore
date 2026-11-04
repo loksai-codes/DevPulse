@@ -3,4 +3,8 @@ dist/
 logs/test-audit.jsonl
 *.log
 .DS_Store
+.env
+data/
+logs/
+
 

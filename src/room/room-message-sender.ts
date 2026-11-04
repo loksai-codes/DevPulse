@@ -78,6 +78,25 @@ export class RoomMessageSender {
       });
 
       if (!response.ok) {
+        if (isOps && response.status === 400) {
+          const directEndpoint = `${this.coreUrl}/agents/${encodeURIComponent(this.agentId)}/message`;
+          const directResponse = await this.fetchFn(directEndpoint, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              room_id: options.roomId,
+              content: options.content
+            })
+          });
+          if (directResponse.ok) {
+            const directData = await directResponse.json().catch(() => ({}));
+            return { success: true, data: directData };
+          }
+        }
+
         const status = response.status;
         const errText = await response.text().catch(() => '');
         throw new Error(`Switch post_message failed [HTTP ${status}]: ${errText || response.statusText}`);
