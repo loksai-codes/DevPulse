@@ -10,7 +10,7 @@
 
 ![Status](https://img.shields.io/badge/status-early%20development-orange?style=for-the-badge)
 ![Phase](https://img.shields.io/badge/phase%201-complete-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node.js-20%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 
@@ -379,27 +379,30 @@ DevPulse is built incrementally: **security and correctness first, autonomy seco
   - [x] Cryptographic diff hashing and HMAC approval signatures
   - [x] Approval integrity validation
   - [x] Hash-chained audit logging
-  - [x] Security-focused unit tests (**29 passed, 0 failed**, typecheck passed)
-- [ ] **Phase 2: Switch Console Integration**
-  - [ ] Connect to a shared Switch Console room
-  - [ ] Configure Sentinel and Patch & Test Runner agents
-  - [ ] Trusted event handling and human approval interactions
-  - [ ] Validate agent-to-agent collaboration
-- [ ] **Phase 3: Sentinel & Incident Memory**
-  - [ ] Incident ingestion
-  - [ ] Historical incident retrieval and similarity-based investigation
-  - [ ] Root-cause analysis
-  - [ ] Structured risk and remediation reports
-- [ ] **Phase 4: Patch & Test Automation**
-  - [ ] Isolated Git worktrees and safe patch application
-  - [ ] Automated test execution
-  - [ ] Diff generation and verification
-  - [ ] Human-controlled PR publication
-- [ ] **Phase 5: End-to-End Incident Response**
-  - [ ] Complete incident-to-remediation workflow
-  - [ ] Post-incident reporting and persistent incident knowledge
-  - [ ] End-to-end security and reliability validation
-  - [ ] Reproducible demonstration
+  - [x] Security-focused unit tests (**173 passed, 0 failed**, typecheck passed)
+- [x] **Milestone 1: Switch Connection & DevPulse Gate**
+  - [x] One-time agent registration (`npm run gate:register`) adhering strictly to the official Switch protocol
+  - [x] DevPulse Gate daemon (`npm run gate`) with WebSocket room connection, online announcement, and local HTTP alert endpoint (`POST /alert`)
+  - [x] Native console room origin filtering (rejecting bridged Slack/Discord/Teams approvals) and maintainer allowlist verification
+  - [x] Windows setup and connection documentation (`docs/SETUP.md`)
+  - [x] Full unit test coverage for gate registration and room filtering (**179 passed, 0 failed**, typecheck passed)
+- [ ] **Milestone 2: Deterministic CLI Tools**
+  - [ ] `sentinel analyze --log <file>`
+  - [ ] `memory search "<text>"` & `memory add --file <md>`
+  - [ ] `runner prepare`, `runner apply`, `runner test`, `runner diff`
+  - [ ] `audit verify`
+- [ ] **Milestone 3: Switch AI Agent Instructions & Room Template**
+  - [ ] Sentinel prompt (`agents/sentinel.md`)
+  - [ ] Runner prompt (`agents/runner.md`)
+  - [ ] Room template (`switch/devpulse-room.template.yaml`)
+- [ ] **Milestone 4: Human Approval & Autonomous PR Publication**
+  - [ ] Verified approval with diff hash binding, replay protection, and audit logging
+  - [ ] Autonomous Git branch push and GitHub PR creation via `gh pr create`
+  - [ ] Post-incident report generation and room document memory updates
+- [ ] **Milestone 5: Demo Polish & Reproduction**
+  - [ ] `demo-app` checkout service with intentional bulk discount defect
+  - [ ] Incident recall demonstration (INC-0007 seed memory)
+  - [ ] Reset script (`npm run demo:reset`) and recording walkthrough (`docs/DEMO.md`)
 
 ---
 

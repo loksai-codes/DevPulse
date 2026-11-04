@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "test": "node --import tsx --test tests/**/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gate:register": "tsx src/gate/register.ts",
+    "gate": "tsx src/gate/index.ts"
   },
   "keywords": [
     "switch-console",
