@@ -1,0 +1,155 @@
+import {
+  SwitchPingFrameSchema,
+  SwitchConnectionStateFrameSchema,
+  SwitchEvictedFrameSchema,
+  SwitchDomainEventFrameSchema,
+  SwitchMessagePayloadSchema,
+  SwitchCommandPayloadSchema,
+  NormalizedRoomEvent
+} from '../types/switch-protocol.js';
+
+export type NormalizerResult =
+  | { type: 'PING' }
+  | { type: 'CONNECTION_STATE'; rooms: string[]; cursor: number; generation: string }
+  | { type: 'EVICTED'; code: string; reason?: string }
+  | { type: 'EVENT'; event: NormalizedRoomEvent }
+  | { type: 'IGNORED'; reason: string };
+
+/**
+ * Normalizes raw frames received over the Switch WebSocket connection
+ * into strongly-typed internal DevPulse representations.
+ */
+export function normalizeSwitchFrame(
+  raw: unknown,
+  expectedAgentId: string
+): NormalizerResult {
+  let parsed: unknown = raw;
+
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { type: 'IGNORED', reason: 'Malformed non-JSON frame' };
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { type: 'IGNORED', reason: 'Frame is not an object' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  // 1. Control Frame: Ping
+  if (obj['type'] === 'ping') {
+    const pingCheck = SwitchPingFrameSchema.safeParse(obj);
+    if (pingCheck.success) {
+      return { type: 'PING' };
+    }
+  }
+
+  // 2. Control Frame: Connection State
+  if (obj['type'] === 'connection_state') {
+    const stateCheck = SwitchConnectionStateFrameSchema.safeParse(obj);
+    if (stateCheck.success) {
+      return {
+        type: 'CONNECTION_STATE',
+        rooms: stateCheck.data.rooms,
+        cursor: stateCheck.data.cursor,
+        generation: stateCheck.data.generation
+      };
+    }
+  }
+
+  // 3. Control Frame: Evicted
+  if (obj['type'] === 'evicted') {
+    const evictCheck = SwitchEvictedFrameSchema.safeParse(obj);
+    if (evictCheck.success) {
+      return {
+        type: 'EVICTED',
+        code: evictCheck.data.code,
+        ...(evictCheck.data.reason ? { reason: evictCheck.data.reason } : {})
+      };
+    }
+  }
+
+  // 4. Domain Event Frame
+  const domainCheck = SwitchDomainEventFrameSchema.safeParse(obj);
+  if (!domainCheck.success) {
+    return {
+      type: 'IGNORED',
+      reason: `Unrecognized frame structure: ${domainCheck.error.issues.map((i) => i.message).join(', ')}`
+    };
+  }
+
+  const frame = domainCheck.data;
+  const isNativeConsole = frame.data.bridge_id === null;
+
+  // Handle 'message' event
+  if (frame.data.type === 'message') {
+    const messagePayloadCheck = SwitchMessagePayloadSchema.safeParse(frame.data.payload);
+    if (!messagePayloadCheck.success) {
+      return {
+        type: 'IGNORED',
+        reason: `Invalid message payload: ${messagePayloadCheck.error.issues.map((i) => i.message).join(', ')}`
+      };
+    }
+
+    const payload = messagePayloadCheck.data;
+    const isSelfMessage = payload.sender === expectedAgentId;
+
+    const normalized: NormalizedRoomEvent = {
+      eventId: payload.message_id,
+      sequence: frame.data.sequence,
+      roomId: frame.data.room_id,
+      isNativeConsole,
+      bridgeId: frame.data.bridge_id,
+      channelType: frame.data.channel_type ?? null,
+      senderId: payload.sender,
+      senderName: payload.sender_name,
+      addressedToMe: payload.addressed,
+      body: payload.body,
+      timestamp: payload.timestamp,
+      threadId: payload.thread_id ?? null,
+      isSelfMessage,
+      raw: parsed
+    };
+
+    return { type: 'EVENT', event: normalized };
+  }
+
+  // Handle 'command' event
+  if (frame.data.type === 'command') {
+    const commandPayloadCheck = SwitchCommandPayloadSchema.safeParse(frame.data.payload);
+    if (!commandPayloadCheck.success) {
+      return {
+        type: 'IGNORED',
+        reason: `Invalid command payload: ${commandPayloadCheck.error.issues.map((i) => i.message).join(', ')}`
+      };
+    }
+
+    const payload = commandPayloadCheck.data;
+    const isSelfMessage = payload.user_id === expectedAgentId;
+
+    const normalized: NormalizedRoomEvent = {
+      eventId: `cmd_${frame.data.sequence}`,
+      sequence: frame.data.sequence,
+      roomId: frame.data.room_id,
+      isNativeConsole,
+      bridgeId: frame.data.bridge_id,
+      channelType: frame.data.channel_type ?? null,
+      senderId: payload.user_id,
+      senderName: payload.user_name,
+      addressedToMe: true,
+      body: `/${payload.command} ${payload.args}`.trim(),
+      timestamp: Date.now(),
+      threadId: payload.thread_id ?? null,
+      isSelfMessage,
+      raw: parsed
+    };
+
+    return { type: 'EVENT', event: normalized };
+  }
+
+  return { type: 'IGNORED', reason: `Unhandled domain event type '${frame.data.type}'` };
+}
+
