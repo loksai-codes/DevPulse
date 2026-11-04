@@ -123,8 +123,8 @@ export class EventRouter extends EventEmitter {
         correlationId
       });
 
-      // Dispatch to Runner
-      const runnerResult = await this.runner.handleTaskRequest(taskRequest);
+      // Dispatch to Runner with verified Sentinel in-process identity
+      const runnerResult = await this.runner.handleTaskRequest(taskRequest, this.sentinel.agentId);
       if (runnerResult.formattedRoomMessage) {
         await this.adapter.sendMessage(runnerResult.formattedRoomMessage, event.threadId, event.roomId);
       }
@@ -144,7 +144,29 @@ export class EventRouter extends EventEmitter {
 
       // Handle Task Request targeted to Runner
       if (agentMessage.type === 'TASK_REQUEST') {
-        const runnerResult = await this.runner.handleTaskRequest(agentMessage as TaskRequestMessage);
+        // Pre-dispatch security gate: Validate actual Switch event sender against trusted Sentinel
+        if (event.senderId !== this.sentinel.agentId) {
+          if (this.auditLogger) {
+            await this.auditLogger.log({
+              actor: { type: 'SYSTEM', id: event.senderId, name: event.senderName },
+              action: 'TASK_REQUEST_DROPPED_UNTRUSTED_SWITCH_SENDER',
+              payload: {
+                actualSenderId: event.senderId,
+                trustedSentinelId: this.sentinel.agentId,
+                claimedSenderAgentId: (agentMessage as TaskRequestMessage).senderAgentId
+              }
+            });
+          }
+          return {
+            handled: false,
+            reason: `Peer task request dropped: Actual Switch sender '${event.senderId}' is not the trusted Sentinel '${this.sentinel.agentId}'`
+          };
+        }
+
+        const runnerResult = await this.runner.handleTaskRequest(
+          agentMessage as TaskRequestMessage,
+          event.senderId
+        );
         if (runnerResult.formattedRoomMessage) {
           await this.adapter.sendMessage(runnerResult.formattedRoomMessage, event.threadId, event.roomId);
         }

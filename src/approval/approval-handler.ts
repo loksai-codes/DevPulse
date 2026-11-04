@@ -34,7 +34,7 @@ export class ApprovalHandler {
     challengeId: string
   ): Promise<ApprovalProcessingResult> {
     // 1. Origin Filter: Must be a native Switch Console session (bridge_id === null)
-    if (!event.isNativeConsole) {
+    if (!event.isNativeConsole || event.bridgeId !== null) {
       const reason = `Approval rejected: Originates from external bridge '${event.bridgeId ?? 'unknown'}'. Approvals must be issued directly from native Switch Console.`;
       await this.logRejection(event, challengeId, reason);
       return {
@@ -44,9 +44,9 @@ export class ApprovalHandler {
       };
     }
 
-    // 2. Sender Authorization: Sender must be in MAINTAINER_ALLOWLIST
-    if (!this.maintainerAllowlist.includes(event.senderId)) {
-      const reason = `Approval rejected: User '${event.senderId}' (${event.senderName}) is not in the authorized maintainer allowlist.`;
+    // 2. Reject self-messages and automated bots/agents attempting to approve
+    if (event.isSelfMessage) {
+      const reason = 'Approval rejected: Autonomous agent self-messages cannot issue approvals.';
       await this.logRejection(event, challengeId, reason);
       return {
         approved: false,
@@ -55,7 +55,28 @@ export class ApprovalHandler {
       };
     }
 
-    // 3. Challenge Consumption: Atomic verification of existence, expiry, and non-reuse
+    if (!event.senderType || event.senderType !== 'USER') {
+      const reason = `Approval rejected: Sender type '${event.senderType ?? 'MISSING'}' is untrusted or missing. Switch approvals strictly require verified 'USER' senderType.`;
+      await this.logRejection(event, challengeId, reason);
+      return {
+        approved: false,
+        reason,
+        formattedRoomMessage: `⛔ **[APPROVAL FORBIDDEN]** ${reason}`
+      };
+    }
+
+    // 3. Sender Authorization: Server-provided senderId must be in MAINTAINER_ALLOWLIST
+    if (!event.senderId || !this.maintainerAllowlist.includes(event.senderId)) {
+      const reason = `Approval rejected: User '${event.senderId || 'unknown'}' (${event.senderName || 'unknown'}) is not in the authorized maintainer allowlist.`;
+      await this.logRejection(event, challengeId, reason);
+      return {
+        approved: false,
+        reason,
+        formattedRoomMessage: `⛔ **[APPROVAL FORBIDDEN]** ${reason}`
+      };
+    }
+
+    // 4. Challenge Consumption: Atomic verification of existence, expiry, and non-reuse
     const consumeResult = this.challengeTracker.consumeChallenge(challengeId, event.senderId);
 
     if (!consumeResult.success) {

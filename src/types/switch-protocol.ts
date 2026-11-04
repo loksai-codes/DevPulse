@@ -98,6 +98,7 @@ export const NormalizedRoomEventSchema = z.object({
   channelType: z.string().nullable(),
   senderId: z.string().min(1),
   senderName: z.string().min(1),
+  senderType: z.enum(['USER', 'AGENT', 'BOT', 'SYSTEM']).optional(),
   addressedToMe: z.boolean(),
   body: z.string(),
   timestamp: z.number(),

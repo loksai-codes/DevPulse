@@ -5,6 +5,13 @@ import { computeDiffHash, computeSpecHash } from '../utils/crypto.js';
 import { ChallengeTracker, ApprovalChallenge } from '../approval/challenge-tracker.js';
 import { AuditLogger } from '../audit/audit-logger.js';
 import { TaskRequestMessage } from '../types/agent-contracts.js';
+import { InvestigationReport } from './types.js';
+import { parseStackTrace } from './analyzer/stack-trace-parser.js';
+import { classifyIncident } from './analyzer/incident-classifier.js';
+import { diagnoseIncident } from './analyzer/root-cause-engine.js';
+import { assessImpact } from './analyzer/impact-assessor.js';
+import { evaluateRisk } from './analyzer/risk-evaluator.js';
+import { buildInvestigationReport } from './analyzer/investigation-reporter.js';
 
 export interface SentinelAgentOptions {
   agentId: string;
@@ -55,7 +62,14 @@ export class SentinelAgent {
     const affectedPath = fileMatch ? fileMatch[0] : 'src/auth.ts';
 
     const patchDiff = `--- a/${affectedPath}\n+++ b/${affectedPath}\n@@ -24,2 +24,2 @@\n- return session.token.expiresAt;\n+ return session?.token?.expiresAt ?? 0;`;
-    const diffHash = computeDiffHash(patchDiff);
+    const patches = [
+      {
+        path: affectedPath,
+        action: 'MODIFY' as const,
+        patchDiff
+      }
+    ];
+    const diffHash = computeDiffHash(patches);
 
     const riskScore = 12;
     const riskReport: RiskReport = {
@@ -76,13 +90,7 @@ export class SentinelAgent {
       targetBranch: `devpulse/fix-${incidentId.toLowerCase()}`,
       errorSignature: params.rawText.slice(0, 120).trim(),
       rootCause: 'Uncaught null/undefined token dereference in session payload',
-      patches: [
-        {
-          path: affectedPath,
-          action: 'MODIFY',
-          patchDiff
-        }
-      ],
+      patches,
       diffHash,
       riskReport,
       verificationCommands: ['npm test', 'npm run lint'],
@@ -136,6 +144,66 @@ export class SentinelAgent {
       challenge,
       formattedRoomMessage
     };
+  }
+
+  /**
+   * Generates a comprehensive, evidence-grounded investigation report
+   * with decoupled confidence and risk, and evidence-based impact assessment.
+   * Strictly DOES NOT create an approval challenge.
+   */
+  public async generateInvestigationReport(params: {
+    rawText: string;
+    senderId?: string | undefined;
+    roomId?: string | undefined;
+    correlationId?: string | undefined;
+    incidentId?: string | undefined;
+  }): Promise<InvestigationReport> {
+    const correlationId = params.correlationId ?? randomUUID();
+    const incidentId = params.incidentId ?? `INC-${Date.now().toString().slice(-6)}`;
+    const timestamp = new Date().toISOString();
+
+    // 1. Diagnostic Pipeline (Sub-Stage 4.1)
+    const parsedTrace = parseStackTrace(params.rawText);
+    const classification = classifyIncident(params.rawText, parsedTrace);
+    const diagnosis = diagnoseIncident(params.rawText, classification, parsedTrace);
+
+    // 2. Impact & Risk Evaluation (Sub-Stage 4.2)
+    const impact = assessImpact(params.rawText, parsedTrace, classification);
+    const riskEvaluation = evaluateRisk(params.rawText, classification, parsedTrace, impact);
+
+    // 3. Synthesis & Markdown Report Generation (No Approval Challenge Created)
+    const report = buildInvestigationReport({
+      incidentId,
+      timestamp,
+      classification,
+      diagnosis,
+      riskEvaluation,
+      impact
+    });
+
+    // 4. Audit Logging (Append-Only, Tamper-Evident)
+    if (this.auditLogger) {
+      await this.auditLogger.log({
+        actor: { type: 'SENTINEL', id: this.agentId, name: 'Sentinel' },
+        action: 'INVESTIGATION_REPORTED',
+        incidentId,
+        payload: {
+          correlationId,
+          incidentCategory: classification.category,
+          evidenceCompleteness: classification.evidenceCompleteness,
+          diagnosticConfidence: diagnosis.diagnosticConfidence,
+          riskScore: riskEvaluation.riskScore,
+          riskLevel: riskEvaluation.riskLevel,
+          blastRadius: impact.classification,
+          affectedComponents: impact.affectedComponents,
+          confirmedFactsCount: diagnosis.confirmedFacts.length,
+          hypothesesCount: diagnosis.hypotheses.length,
+          appliedModifiers: riskEvaluation.appliedModifiers.map((m) => m.name)
+        }
+      });
+    }
+
+    return report;
   }
 
   /**

@@ -42,7 +42,8 @@ describe('EventRouter & Agent Orchestration (Stage 3 Integration)', () => {
 
     runner = new RunnerAgent({
       agentId: RUNNER_ID,
-      sentinelAgentId: SENTINEL_ID
+      sentinelAgentId: SENTINEL_ID,
+      challengeTracker
     });
 
     approvalHandler = new ApprovalHandler({
@@ -309,13 +310,13 @@ describe('EventRouter & Agent Orchestration (Stage 3 Integration)', () => {
     });
 
     const routeResult = await router.routeEvent(peerMessageEvent);
-    assert.equal(routeResult.handled, true);
-    assert.equal(routeResult.action, 'RUNNER_TASK_PROCESSED');
+    assert.equal(routeResult.handled, false);
+    assert.match(routeResult.reason!, /Actual Switch sender 'agn_attacker_fake_sentinel' is not the trusted Sentinel/);
 
-    // Runner must reply with rejection
-    const lastPosted = postedMessages[postedMessages.length - 1]!;
-    assert.match(lastPosted, /TASK_REQUEST REJECTED/);
-    assert.match(lastPosted, /Sender 'agn_attacker_fake_sentinel' is not the authorized Sentinel/);
+    // Direct invocation on Runner also rejects with untrusted dispatcher
+    const directResult = await runner.handleTaskRequest(forgedTaskRequest as any, 'agn_attacker_fake_sentinel');
+    assert.equal(directResult.accepted, false);
+    assert.match(directResult.reason!, /Unauthorized task dispatcher 'agn_attacker_fake_sentinel'/);
   });
 
   it('drops duplicate events via idempotency tracker', async () => {

@@ -96,6 +96,13 @@ export function normalizeSwitchFrame(
 
     const payload = messagePayloadCheck.data;
     const isSelfMessage = payload.sender === expectedAgentId;
+    const rawSenderType = (payload as Record<string, unknown>)['sender_type'];
+    const senderType =
+      rawSenderType === 'USER' || rawSenderType === 'AGENT' || rawSenderType === 'BOT' || rawSenderType === 'SYSTEM'
+        ? rawSenderType
+        : payload.sender.startsWith('agn_')
+          ? 'AGENT'
+          : 'USER';
 
     const normalized: NormalizedRoomEvent = {
       eventId: payload.message_id,
@@ -106,6 +113,7 @@ export function normalizeSwitchFrame(
       channelType: frame.data.channel_type ?? null,
       senderId: payload.sender,
       senderName: payload.sender_name,
+      senderType,
       addressedToMe: payload.addressed,
       body: payload.body,
       timestamp: payload.timestamp,
@@ -139,6 +147,7 @@ export function normalizeSwitchFrame(
       channelType: frame.data.channel_type ?? null,
       senderId: payload.user_id,
       senderName: payload.user_name,
+      senderType: 'USER',
       addressedToMe: true,
       body: `/${payload.command} ${payload.args}`.trim(),
       timestamp: Date.now(),
