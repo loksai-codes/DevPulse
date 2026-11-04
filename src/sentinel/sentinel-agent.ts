@@ -11,7 +11,7 @@ export interface SentinelAgentOptions {
   runnerAgentId: string;
   maintainerAllowlist: string[];
   challengeTracker: ChallengeTracker;
-  auditLogger?: AuditLogger;
+  auditLogger?: AuditLogger | undefined;
 }
 
 export interface InvestigationResult {
@@ -27,7 +27,7 @@ export class SentinelAgent {
   public readonly runnerAgentId: string;
   private maintainerAllowlist: string[];
   private challengeTracker: ChallengeTracker;
-  private auditLogger?: AuditLogger;
+  private auditLogger?: AuditLogger | undefined;
 
   constructor(options: SentinelAgentOptions) {
     this.agentId = options.agentId;

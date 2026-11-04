@@ -1,7 +1,7 @@
 import { NormalizedRoomEvent } from '../types/switch-protocol.js';
 
 export type EventCategory =
-  | { kind: 'APPROVAL_COMMAND'; challengeId: string; rawSignature?: string }
+  | { kind: 'APPROVAL_COMMAND'; challengeId: string; rawSignature?: string | undefined }
   | { kind: 'INCIDENT_REPORT'; text: string }
   | { kind: 'PEER_AGENT_MESSAGE'; payload: Record<string, unknown> }
   | { kind: 'IGNORED'; reason: string };
@@ -18,8 +18,10 @@ export function classifyEvent(
     return { kind: 'IGNORED', reason: 'Self-message dropped to prevent infinite loops' };
   }
 
-  // 2. Structured Agent Message: Check if the body contains a JSON agent-to-agent contract
   const trimmed = event.body.trim();
+  const isPeerAgent = event.senderId === sentinelAgentId || event.senderId === runnerAgentId;
+
+  // 2. Structured Agent Message: Check if the body contains a JSON agent-to-agent contract
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed);
@@ -29,6 +31,11 @@ export function classifyEvent(
     } catch {
       // Not a JSON message, continue parsing as human text
     }
+  }
+
+  // Known peer agents should only exchange structured contracts, not chat text
+  if (isPeerAgent) {
+    return { kind: 'IGNORED', reason: 'Unstructured text from peer agent ignored' };
   }
 
   // 3. Human Approval Command: Check for "@devpulse approve appr_..."

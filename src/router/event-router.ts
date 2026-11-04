@@ -16,8 +16,8 @@ export interface EventRouterOptions {
   runner: RunnerAgent;
   approvalHandler: ApprovalHandler;
   adapter: SwitchAdapter;
-  auditLogger?: AuditLogger;
-  idempotencyTracker?: IdempotencyTracker;
+  auditLogger?: AuditLogger | undefined;
+  idempotencyTracker?: IdempotencyTracker | undefined;
 }
 
 export class EventRouter extends EventEmitter {
@@ -25,7 +25,7 @@ export class EventRouter extends EventEmitter {
   private runner: RunnerAgent;
   private approvalHandler: ApprovalHandler;
   private adapter: SwitchAdapter;
-  private auditLogger?: AuditLogger;
+  private auditLogger?: AuditLogger | undefined;
   private idempotency: IdempotencyTracker;
 
   // Staged specifications awaiting human approval
@@ -48,7 +48,7 @@ export class EventRouter extends EventEmitter {
   /**
    * Main routing pipeline for incoming room events.
    */
-  public async routeEvent(event: NormalizedRoomEvent): Promise<{ handled: boolean; action?: string; reason?: string }> {
+  public async routeEvent(event: NormalizedRoomEvent): Promise<{ handled: boolean; action?: string | undefined; reason?: string | undefined }> {
     // 1. Idempotency Check: Drop duplicate events
     if (!this.idempotency.markProcessed(event.eventId)) {
       return { handled: false, reason: `Duplicate event '${event.eventId}' dropped` };
@@ -59,6 +59,18 @@ export class EventRouter extends EventEmitter {
 
     if (classification.kind === 'IGNORED') {
       return { handled: false, reason: classification.reason };
+    }
+
+    if (this.auditLogger) {
+      await this.auditLogger.log({
+        actor: { type: 'SYSTEM', id: event.senderId, name: event.senderName },
+        action: 'EVENT_ROUTED',
+        payload: {
+          eventId: event.eventId,
+          roomId: event.roomId,
+          kind: classification.kind
+        }
+      });
     }
 
     // 3. Route Incident Report -> Sentinel

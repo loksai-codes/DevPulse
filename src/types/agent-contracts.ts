@@ -70,3 +70,4 @@ export const AgentMessageSchema = z.discriminatedUnion('type', [
   RiskReportNotificationSchema
 ]);
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+

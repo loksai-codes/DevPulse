@@ -9,7 +9,8 @@ import { AuditLogger } from '../audit/audit-logger.js';
 
 export interface RunnerAgentOptions {
   agentId: string;
-  trustedSentinelId: string;
+  trustedSentinelId?: string | undefined;
+  sentinelAgentId?: string | undefined;
   auditLogger?: AuditLogger | undefined;
 }
 
@@ -28,7 +29,7 @@ export class RunnerAgent {
 
   constructor(options: RunnerAgentOptions) {
     this.agentId = options.agentId;
-    this.trustedSentinelId = options.trustedSentinelId;
+    this.trustedSentinelId = (options.trustedSentinelId ?? options.sentinelAgentId) || '';
     this.auditLogger = options.auditLogger;
   }
 
@@ -55,7 +56,8 @@ export class RunnerAgent {
       }
       return {
         accepted: false,
-        reason: `Unauthorized task dispatcher '${request.senderAgentId}'. Tasks are only accepted from trusted Sentinel '${this.trustedSentinelId}'.`
+        reason: `Unauthorized task dispatcher '${request.senderAgentId}'. Tasks are only accepted from trusted Sentinel '${this.trustedSentinelId}'.`,
+        formattedRoomMessage: `⛔ **[RUNNER TASK_REQUEST REJECTED]** Sender '${request.senderAgentId}' is not the authorized Sentinel.`
       };
     }
 
@@ -63,7 +65,8 @@ export class RunnerAgent {
     if (request.hopCount > MAX_COMMUNICATION_HOP_DEPTH) {
       return {
         accepted: false,
-        reason: `Communication hop count ${request.hopCount} exceeds maximum allowed depth (${MAX_COMMUNICATION_HOP_DEPTH})`
+        reason: `Communication hop count ${request.hopCount} exceeds maximum allowed depth (${MAX_COMMUNICATION_HOP_DEPTH})`,
+        formattedRoomMessage: `⛔ **[RUNNER TASK_REQUEST REJECTED]** Hop count ${request.hopCount} exceeds maximum allowed depth.`
       };
     }
 
@@ -79,7 +82,8 @@ export class RunnerAgent {
       }
       return {
         accepted: false,
-        reason: 'Task request lacks valid human maintainer approval confirmation'
+        reason: 'Task request lacks valid human maintainer approval confirmation',
+        formattedRoomMessage: '⛔ **[RUNNER TASK_REQUEST REJECTED]** Missing human approval challenge confirmation.'
       };
     }
 
