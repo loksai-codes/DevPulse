@@ -41,6 +41,14 @@ export const EnvSchema = z.object({
     .string()
     .min(1)
     .default('./data/incidents.md'),
+  INCIDENT_JSONL_PATH: z
+    .string()
+    .min(1)
+    .default('./data/incidents.jsonl'),
+  INCIDENT_QUARANTINE_PATH: z
+    .string()
+    .min(1)
+    .default('./data/incidents.quarantine.jsonl'),
   CHALLENGE_STORE_PATH: z
     .string()
     .min(1)
@@ -67,6 +75,8 @@ export function loadConfig(overrides: Partial<Record<keyof DevPulseConfig, unkno
     DEVPULSE_APPROVAL_SECRET: overrides.DEVPULSE_APPROVAL_SECRET ?? process.env['DEVPULSE_APPROVAL_SECRET'],
     AUDIT_LOG_PATH: overrides.AUDIT_LOG_PATH ?? process.env['AUDIT_LOG_PATH'],
     INCIDENT_STORE_PATH: overrides.INCIDENT_STORE_PATH ?? process.env['INCIDENT_STORE_PATH'],
+    INCIDENT_JSONL_PATH: overrides.INCIDENT_JSONL_PATH ?? process.env['INCIDENT_JSONL_PATH'],
+    INCIDENT_QUARANTINE_PATH: overrides.INCIDENT_QUARANTINE_PATH ?? process.env['INCIDENT_QUARANTINE_PATH'],
     CHALLENGE_STORE_PATH: overrides.CHALLENGE_STORE_PATH ?? process.env['CHALLENGE_STORE_PATH'],
     NODE_ENV: overrides.NODE_ENV ?? process.env['NODE_ENV']
   };
