@@ -10,6 +10,7 @@ import {
   normalizeTargetComponent,
   normalizeStackFrames
 } from './normalization.js';
+import { generateHistoricalOutcomeReport } from './historical-outcome-reporter.js';
 
 // Weight configuration for deterministic multi-factor similarity
 export const SIMILARITY_WEIGHTS = {
@@ -266,11 +267,14 @@ export function evaluateIncidentSimilarity(
     ? `Exact match on error signature and target component '${record.affectedTarget}' (Score: ${overallScore.toFixed(2)})`
     : `Approximate similarity match (Score: ${overallScore.toFixed(2)}, Type: ${matchType}) with ${reasons.length} matching factors`;
 
+  const outcomeReport = generateHistoricalOutcomeReport(record);
+
   return {
     record,
     similarity: similarityExplanation,
     verificationStatus: record.verificationStatus,
-    relevanceExplanation
+    relevanceExplanation,
+    outcomeReport
   };
 }
 

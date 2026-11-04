@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   TaskRequestMessage,
   TaskResponseMessage,
@@ -8,6 +11,22 @@ import {
 import { AuditLogger } from '../audit/audit-logger.js';
 import { ChallengeTracker } from '../approval/challenge-tracker.js';
 import { computeDiffHash, computeSpecHash } from '../utils/crypto.js';
+import { validateSafeRepoPath } from '../utils/path-validator.js';
+import { ContainerSandboxDriver } from './sandbox-driver.js';
+
+export interface ExecutionEvidence {
+  taskId: string;
+  specId: string;
+  exitCode: number;
+  passed: boolean;
+  totalDurationMs: number;
+  commandsExecuted: string[];
+  stdout: string;
+  stderr: string;
+  sandboxImage: string;
+  networkIsolated: boolean;
+  timestamp: string;
+}
 
 export interface RunnerAgentOptions {
   agentId: string;
@@ -15,6 +34,10 @@ export interface RunnerAgentOptions {
   sentinelAgentId?: string | undefined;
   challengeTracker?: ChallengeTracker | undefined;
   auditLogger?: AuditLogger | undefined;
+  sandboxDriver?: ContainerSandboxDriver | undefined;
+  baseWorkspaceDir?: string | undefined;
+  sampleRepoTemplatePath?: string | undefined;
+  sandboxImage?: string | undefined;
 }
 
 export interface RunnerTaskResult {
@@ -23,6 +46,45 @@ export interface RunnerTaskResult {
   response?: TaskResponseMessage | undefined;
   statusUpdate?: TaskStatusUpdateMessage | undefined;
   formattedRoomMessage?: string | undefined;
+  executionEvidence?: ExecutionEvidence | undefined;
+}
+
+/**
+ * Applies a unified diff chunk or replacement safely to file content.
+ */
+export function applyUnifiedDiff(originalContent: string, patchDiff: string): string {
+  const lines = patchDiff.split(/\r?\n/);
+  const removals: string[] = [];
+  const additions: string[] = [];
+  let inHunk = false;
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      inHunk = true;
+      continue;
+    }
+    if (inHunk) {
+      if (line.startsWith('-')) {
+        removals.push(line.slice(1).trim());
+      } else if (line.startsWith('+')) {
+        additions.push(line.slice(1).trim());
+      }
+    }
+  }
+
+  if (removals.length > 0 && additions.length > 0) {
+    let modified = originalContent.replace(/\r\n/g, '\n');
+    for (let i = 0; i < removals.length; i++) {
+      const rem = removals[i]!;
+      const add = additions[i] ?? '';
+      if (modified.includes(rem)) {
+        modified = modified.replace(rem, add);
+      }
+    }
+    return modified;
+  }
+
+  return patchDiff;
 }
 
 export class RunnerAgent {
@@ -30,12 +92,20 @@ export class RunnerAgent {
   public readonly trustedSentinelId: string;
   private challengeTracker?: ChallengeTracker | undefined;
   private auditLogger?: AuditLogger | undefined;
+  private sandboxDriver?: ContainerSandboxDriver | undefined;
+  private baseWorkspaceDir?: string | undefined;
+  private sampleRepoTemplatePath?: string | undefined;
+  private sandboxImage: string;
 
   constructor(options: RunnerAgentOptions) {
     this.agentId = options.agentId;
     this.trustedSentinelId = (options.trustedSentinelId ?? options.sentinelAgentId) || '';
     this.challengeTracker = options.challengeTracker;
     this.auditLogger = options.auditLogger;
+    this.sandboxDriver = options.sandboxDriver;
+    this.baseWorkspaceDir = options.baseWorkspaceDir;
+    this.sampleRepoTemplatePath = options.sampleRepoTemplatePath;
+    this.sandboxImage = options.sandboxImage ?? 'node:20-alpine';
   }
 
   /**
@@ -240,6 +310,175 @@ export class RunnerAgent {
           formattedRoomMessage: `⛔ **[RUNNER TASK_REQUEST REJECTED]** Approval has expired.`
         };
       }
+    }
+
+    // 9. If sandbox driver is configured, execute the verified remediation in the hardened container
+    if (this.sandboxDriver) {
+      const workspaceDir = path.join(
+        this.baseWorkspaceDir ?? tmpdir(),
+        `devpulse-ws-${taskId}-${randomUUID().slice(0, 8)}`
+      );
+
+      let accumulatedStdout = '';
+      let accumulatedStderr = '';
+      let lastExitCode = 0;
+      let totalDurationMs = 0;
+      const commandsExecuted: string[] = [];
+
+      try {
+        await fs.mkdir(workspaceDir, { recursive: true });
+
+        // Copy sample repo template files if provided
+        if (this.sampleRepoTemplatePath) {
+          await fs.cp(this.sampleRepoTemplatePath, workspaceDir, { recursive: true });
+        }
+
+        // Apply approved patches inside isolated workspace
+        for (const patch of request.spec.patches) {
+          const validation = validateSafeRepoPath(patch.path, workspaceDir);
+          if (!validation.safe) {
+            return {
+              accepted: false,
+              reason: `Task rejected: Patch path '${patch.path}' is unsafe: ${validation.reason}`,
+              formattedRoomMessage: `⛔ **[RUNNER TASK REJECTED]** Unsafe patch path: ${validation.reason}`
+            };
+          }
+
+          const targetPath = path.join(workspaceDir, patch.path);
+          if (patch.action === 'MODIFY') {
+            const existing = await fs.readFile(targetPath, 'utf8').catch(() => '');
+            const updated = applyUnifiedDiff(existing, patch.patchDiff);
+            await fs.mkdir(path.dirname(targetPath), { recursive: true });
+            await fs.writeFile(targetPath, updated, 'utf8');
+          } else if (patch.action === 'CREATE') {
+            await fs.mkdir(path.dirname(targetPath), { recursive: true });
+            await fs.writeFile(targetPath, patch.patchDiff, 'utf8');
+          } else if (patch.action === 'DELETE') {
+            await fs.rm(targetPath, { force: true }).catch(() => {});
+          }
+        }
+
+        // Execute approved verification commands inside the hardened sandbox container
+        for (const cmdStr of request.spec.verificationCommands) {
+          commandsExecuted.push(cmdStr);
+          const parts = cmdStr.trim().split(/\s+/);
+          const command = parts[0]!;
+          const args = parts.slice(1);
+
+          const execResult = await this.sandboxDriver.execute({
+            workspacePath: workspaceDir,
+            command,
+            args,
+            image: this.sandboxImage
+          });
+
+          accumulatedStdout += execResult.stdout;
+          accumulatedStderr += execResult.stderr;
+          totalDurationMs += execResult.durationMs;
+          lastExitCode = execResult.exitCode;
+
+          if (execResult.exitCode !== 0 || execResult.timedOut) {
+            break;
+          }
+        }
+      } catch (err) {
+        lastExitCode = 1;
+        accumulatedStderr += `\nSandbox execution failure: ${String(err)}`;
+      } finally {
+        await fs.rm(workspaceDir, { recursive: true, force: true }).catch(() => {});
+      }
+
+      const passed = lastExitCode === 0;
+
+      const executionEvidence: ExecutionEvidence = {
+        taskId,
+        specId: request.spec.id,
+        exitCode: lastExitCode,
+        passed,
+        totalDurationMs,
+        commandsExecuted,
+        stdout: accumulatedStdout.trim(),
+        stderr: accumulatedStderr.trim(),
+        sandboxImage: this.sandboxImage,
+        networkIsolated: true,
+        timestamp: new Date().toISOString()
+      };
+
+      const response: TaskResponseMessage = {
+        id: randomUUID(),
+        type: 'TASK_RESPONSE',
+        correlationId: request.correlationId,
+        timestamp: new Date().toISOString(),
+        senderAgentId: this.agentId,
+        targetAgentId: this.trustedSentinelId,
+        hopCount: request.hopCount + 1,
+        taskId,
+        specId: request.spec.id,
+        accepted: true,
+        status: 'ACKNOWLEDGED'
+      };
+
+      const statusUpdate: TaskStatusUpdateMessage = {
+        id: randomUUID(),
+        type: 'STATUS_UPDATE',
+        correlationId: request.correlationId,
+        timestamp: new Date().toISOString(),
+        senderAgentId: this.agentId,
+        targetAgentId: this.trustedSentinelId,
+        hopCount: request.hopCount + 1,
+        taskId,
+        specId: request.spec.id,
+        status: passed ? 'COMPLETED' : 'FAILED',
+        message: `Task ${taskId} execution ${passed ? 'passed' : 'failed'} with exit code ${lastExitCode}`,
+        details: {
+          exitCode: lastExitCode,
+          durationMs: totalDurationMs,
+          passed,
+          commands: commandsExecuted
+        }
+      };
+
+      const stdoutTail = accumulatedStdout.length > 500
+        ? '...' + accumulatedStdout.slice(-500)
+        : accumulatedStdout || '(No stdout)';
+
+      const formattedRoomMessage = [
+        `🚀 **[PATCH & TEST RUNNER] Execution ${passed ? 'PASSED ✅' : 'FAILED ❌'}**`,
+        `- **Task ID:** \`${taskId}\``,
+        `- **Target Repository:** \`${request.spec.targetRepository}\``,
+        `- **Target Branch:** \`${request.spec.targetBranch}\``,
+        `- **Approved By:** \`${request.approvedBy}\``,
+        `- **Exit Code:** \`${lastExitCode}\` | **Duration:** \`${totalDurationMs}ms\``,
+        `- **Sandbox Isolation:** Hardened Container (\`--network none\`, \`non-root\`, \`read-only\`)`,
+        `- **Verification Evidence:**`,
+        '```text',
+        stdoutTail,
+        '```'
+      ].join('\n');
+
+      if (this.auditLogger) {
+        await this.auditLogger.log({
+          actor: { type: 'PATCH_RUNNER', id: this.agentId, name: 'Patch Runner' },
+          action: 'TASK_EXECUTION_COMPLETED',
+          specId: request.spec.id,
+          payload: {
+            taskId,
+            correlationId: request.correlationId,
+            passed,
+            exitCode: lastExitCode,
+            totalDurationMs,
+            approvedBy: request.approvedBy
+          }
+        });
+      }
+
+      return {
+        accepted: true,
+        response,
+        statusUpdate,
+        formattedRoomMessage,
+        executionEvidence
+      };
     }
 
     // 4. Formulate Acknowledged Task Response (increments hopCount)

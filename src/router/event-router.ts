@@ -18,6 +18,7 @@ export interface EventRouterOptions {
   adapter: SwitchAdapter;
   auditLogger?: AuditLogger | undefined;
   idempotencyTracker?: IdempotencyTracker | undefined;
+  canonicalRepository?: string | undefined;
 }
 
 export class EventRouter extends EventEmitter {
@@ -27,6 +28,7 @@ export class EventRouter extends EventEmitter {
   private adapter: SwitchAdapter;
   private auditLogger?: AuditLogger | undefined;
   private idempotency: IdempotencyTracker;
+  private canonicalRepository?: string | undefined;
 
   // Staged specifications awaiting human approval
   private activeSpecs = new Map<string, RemediationSpec>();
@@ -39,6 +41,7 @@ export class EventRouter extends EventEmitter {
     this.adapter = options.adapter;
     this.auditLogger = options.auditLogger;
     this.idempotency = options.idempotencyTracker ?? new IdempotencyTracker();
+    this.canonicalRepository = options.canonicalRepository;
 
     this.adapter.on('message', (event: NormalizedRoomEvent) => {
       this.routeEvent(event).catch((err) => this.emit('error', err));
@@ -80,6 +83,7 @@ export class EventRouter extends EventEmitter {
 
       const result = await this.sentinel.investigate({
         rawText: classification.text,
+        canonicalRepository: this.canonicalRepository,
         senderId: event.senderId,
         roomId: event.roomId,
         correlationId
@@ -129,8 +133,12 @@ export class EventRouter extends EventEmitter {
         await this.adapter.sendMessage(runnerResult.formattedRoomMessage, event.threadId, event.roomId);
       }
 
+      const action = runnerResult.executionEvidence ? 'TASK_APPROVED_AND_EXECUTED' : 'TASK_APPROVED_AND_QUEUED';
       this.emit('task_dispatched', { taskRequest, runnerResult });
-      return { handled: true, action: 'TASK_APPROVED_AND_QUEUED' };
+      if (runnerResult.executionEvidence) {
+        this.emit('task_executed', { taskRequest, runnerResult });
+      }
+      return { handled: true, action };
     }
 
     // 5. Route Structured Peer Agent Message

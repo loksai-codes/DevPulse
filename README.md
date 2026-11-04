@@ -10,7 +10,7 @@
 
 ![Status](https://img.shields.io/badge/status-early%20development-orange?style=for-the-badge)
 ![Phase](https://img.shields.io/badge/phase%201-complete-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen?style=for-the-badge)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node.js-20%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 
@@ -332,8 +332,10 @@ Directories marked *planned* are integration points that will be added as develo
 - Node.js 20 or later
 - npm
 - Git
+- Docker Desktop (or Podman) running locally
+- Container Image: `docker pull node:20-alpine` (for hardened offline test execution)
 - Google Antigravity IDE
-- Switch Console (for agent orchestration)
+- Switch Console room (for live agent orchestration)
 
 ### Install
 
@@ -341,6 +343,7 @@ Directories marked *planned* are integration points that will be added as develo
 git clone <YOUR_REPOSITORY_URL>
 cd DevPulse
 npm install
+docker pull node:20-alpine
 ```
 
 ### Configure
@@ -348,10 +351,17 @@ npm install
 Create a local `.env` file:
 
 ```env
+# Cryptographic secret for Human-in-the-Loop approval binding (minimum 32 characters)
 DEVPULSE_APPROVAL_SECRET=your-secure-random-secret-of-at-least-32-characters
+
+# Switch Console Room Configuration
+SWITCH_CORE_URL=https://api.switch.example.com
+SWITCH_AGENT_ID=agt_sentinel_01
+SWITCH_API_KEY=your_switch_agent_api_key
+SWITCH_ROOM_ID=room_devpulse_ops
 ```
 
-Generate a strong secret:
+Generate a strong HMAC secret:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -359,10 +369,22 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 > ⚠️ **Never commit `.env` files.** Never expose secrets in frontend code, logs or source control. Use a dedicated secret manager in production, and never use example secrets.
 
-### Validate
+### Live End-to-End MVP Demonstration
+
+To execute the complete 9-step incident triage workflow with real Docker Desktop sandboxing:
 
 ```bash
-npm test            # unit and security tests
+# 1. Ensure Docker Desktop is active and image is available
+docker pull node:20-alpine
+
+# 2. Run the end-to-end integration demo test
+npx tsx --test tests/e2e-mvp-workflow.test.ts
+```
+
+### Validate Full Repository Suite
+
+```bash
+npm test            # 280 unit, security, memory, and E2E tests
 npm run typecheck   # TypeScript checks
 npm run build       # compile the project
 ```

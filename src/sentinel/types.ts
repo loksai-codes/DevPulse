@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RiskReport, RiskLevel } from '../types/risk-report.js';
+import { HistoricalOutcomeReport } from '../memory/types.js';
 
 export const EvidenceCompletenessSchema = z.enum(['COMPLETE', 'PARTIAL', 'INSUFFICIENT']);
 export type EvidenceCompleteness = z.infer<typeof EvidenceCompletenessSchema>;
@@ -98,6 +99,15 @@ export interface RiskEvaluationResult {
   riskReport: RiskReport;
 }
 
+export interface HistoricalPrecedentSummary {
+  incidentId: string;
+  canonicalRepository: string;
+  overallScore: number;
+  matchType: 'EXACT' | 'APPROXIMATE';
+  relevanceExplanation: string;
+  historicalOutcome: HistoricalOutcomeReport;
+}
+
 export interface InvestigationReport {
   incidentId: string;
   timestamp: string;
@@ -106,6 +116,8 @@ export interface InvestigationReport {
   diagnosis: InvestigationDiagnosis;
   riskEvaluation: RiskEvaluationResult;
   impact: EvidenceBasedImpact;
+  historicalPrecedents: HistoricalPrecedentSummary[];
+  historicalPrecedentsNotice?: string | undefined;
   nextSteps: string[];
   formattedMarkdown: string;
 }
