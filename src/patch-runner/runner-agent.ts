@@ -10,21 +10,21 @@ import { AuditLogger } from '../audit/audit-logger.js';
 export interface RunnerAgentOptions {
   agentId: string;
   trustedSentinelId: string;
-  auditLogger?: AuditLogger;
+  auditLogger?: AuditLogger | undefined;
 }
 
 export interface RunnerTaskResult {
   accepted: boolean;
-  reason?: string;
-  response?: TaskResponseMessage;
-  statusUpdate?: TaskStatusUpdateMessage;
-  formattedRoomMessage?: string;
+  reason?: string | undefined;
+  response?: TaskResponseMessage | undefined;
+  statusUpdate?: TaskStatusUpdateMessage | undefined;
+  formattedRoomMessage?: string | undefined;
 }
 
 export class RunnerAgent {
   public readonly agentId: string;
   public readonly trustedSentinelId: string;
-  private auditLogger?: AuditLogger;
+  private auditLogger?: AuditLogger | undefined;
 
   constructor(options: RunnerAgentOptions) {
     this.agentId = options.agentId;
@@ -87,7 +87,7 @@ export class RunnerAgent {
     const response: TaskResponseMessage = {
       id: randomUUID(),
       type: 'TASK_RESPONSE',
-      correlationId: request.correlationId, // Links directly back to Sentinel's correlationId
+      correlationId: request.correlationId,
       timestamp: new Date().toISOString(),
       senderAgentId: this.agentId,
       targetAgentId: this.trustedSentinelId,
