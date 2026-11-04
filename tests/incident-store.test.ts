@@ -223,8 +223,9 @@ describe('Sub-Stage 4.3.2: Persistent Incident Store', () => {
       // Quarantine file must contain the preserved bad lines
       const quarantined = await store.getQuarantinedRecords();
       assert.equal(quarantined.length, 2);
-      assert.ok(quarantined.some((q) => q.rawContent.includes('malformed json line')));
-      assert.ok(quarantined.some((q) => q.rawContent.includes('INC-BAD')));
+      assert.ok(quarantined.some((q) => q.sanitizedContent.includes('malformed json line')));
+      assert.ok(quarantined.some((q) => q.sanitizedContent.includes('INC-BAD')));
+      assert.ok(quarantined.every((q) => /^[a-f0-9]{64}$/i.test(q.rawLineHash)));
     });
 
     it('recovers from incomplete final line (interrupted crash write) and quarantines it', async () => {
@@ -243,7 +244,8 @@ describe('Sub-Stage 4.3.2: Persistent Incident Store', () => {
       const quarantined = await store.getQuarantinedRecords();
       assert.equal(quarantined.length, 1);
       assert.ok(quarantined[0]?.reason.includes('Incomplete final line'));
-      assert.equal(quarantined[0]?.rawContent, incompleteLine);
+      assert.equal(quarantined[0]?.sanitizedContent, incompleteLine);
+      assert.match(quarantined[0]?.rawLineHash ?? '', /^[a-f0-9]{64}$/i);
     });
   });
 

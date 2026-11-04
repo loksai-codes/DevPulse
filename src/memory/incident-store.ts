@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   IncidentMemoryRecord,
   IncidentMemoryRecordSchema,
@@ -108,6 +109,9 @@ export class IncidentStore {
         // If it is the last line and there was no trailing newline, verify carefully
         const isLastLine = i === lines.length - 1;
 
+        const rawLineHash = createHash('sha256').update(trimmed, 'utf8').digest('hex');
+        const sanitizedContent = sanitizeAuditPayload(trimmed) as string;
+
         let parsedJson: unknown;
         try {
           parsedJson = JSON.parse(trimmed);
@@ -121,7 +125,8 @@ export class IncidentStore {
             id: `quar_${Date.now()}_${i + 1}`,
             quarantinedAt: new Date().toISOString(),
             reason,
-            rawContent: trimmed
+            rawLineHash,
+            sanitizedContent
           });
           continue;
         }
@@ -134,7 +139,8 @@ export class IncidentStore {
             id: `quar_${Date.now()}_${i + 1}`,
             quarantinedAt: new Date().toISOString(),
             reason: `Schema validation failed at line ${i + 1}: ${parseResult.error.message}`,
-            rawContent: trimmed
+            rawLineHash,
+            sanitizedContent
           });
           continue;
         }
@@ -151,7 +157,8 @@ export class IncidentStore {
             id: `quar_${Date.now()}_${i + 1}`,
             quarantinedAt: new Date().toISOString(),
             reason: `Duplicate incident ID during startup recovery: '${validRecord.id}'`,
-            rawContent: trimmed
+            rawLineHash,
+            sanitizedContent
           });
           continue;
         }
@@ -162,7 +169,8 @@ export class IncidentStore {
             id: `quar_${Date.now()}_${i + 1}`,
             quarantinedAt: new Date().toISOString(),
             reason: `Duplicate incident identity during startup recovery (matches ID: '${this.identityIndex.get(identityKey)}')`,
-            rawContent: trimmed
+            rawLineHash,
+            sanitizedContent
           });
           continue;
         }

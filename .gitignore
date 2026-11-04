@@ -1,6 +1,6 @@
 node_modules/
 dist/
-logs/test-audit.jsonl
+logs/
 *.log
 .DS_Store
 

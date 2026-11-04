@@ -32,6 +32,10 @@ describe('Adversarial Security Verification', () => {
   const testAuditPath = path.resolve('./logs/adversarial-audit.jsonl');
   const testSymlinkSandboxDir = path.resolve('./logs/test-symlink-sandbox');
 
+  beforeEach(async () => {
+    await fs.mkdir(path.resolve('./logs'), { recursive: true });
+  });
+
   afterEach(async () => {
     try { await fs.unlink(testNonceFilePath); } catch {}
     try { await fs.unlink(testAuditPath); } catch {}
