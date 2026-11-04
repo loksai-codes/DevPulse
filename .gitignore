@@ -3,6 +3,10 @@ dist/
 logs/
 *.log
 .DS_Store
+.env
+data/
+logs/
+
 
 .env
 .env.*

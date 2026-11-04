@@ -1,0 +1,9 @@
+{
+  "name": "sample-auth-service",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node test/auth.test.js",
+    "lint": "node -e \"console.log('Linting passed cleanly.')\""
+  }
+}

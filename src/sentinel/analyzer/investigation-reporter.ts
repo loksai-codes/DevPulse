@@ -3,13 +3,15 @@ import {
   InvestigationDiagnosis,
   IncidentClassification,
   EvidenceBasedImpact,
-  RiskEvaluationResult
+  RiskEvaluationResult,
+  HistoricalPrecedentSummary
 } from '../types.js';
 
 /**
  * Synthesizes the structured InvestigationReport and formats the Switch Room Markdown.
  * Clearly separates confirmed facts, hypotheses, and recommendations.
  * Strictly avoids automatically creating approval challenges.
+ * Enforces diagnostic independence: historical precedents are included strictly for contextual intelligence.
  */
 export function buildInvestigationReport(params: {
   incidentId: string;
@@ -18,8 +20,19 @@ export function buildInvestigationReport(params: {
   diagnosis: InvestigationDiagnosis;
   riskEvaluation: RiskEvaluationResult;
   impact: EvidenceBasedImpact;
+  historicalPrecedents?: HistoricalPrecedentSummary[] | undefined;
+  historicalPrecedentsNotice?: string | undefined;
 }): InvestigationReport {
-  const { incidentId, timestamp, classification, diagnosis, riskEvaluation, impact } = params;
+  const {
+    incidentId,
+    timestamp,
+    classification,
+    diagnosis,
+    riskEvaluation,
+    impact,
+    historicalPrecedents = [],
+    historicalPrecedentsNotice
+  } = params;
 
   // 1. Synthesize recommended next investigative steps
   const nextSteps: string[] = [];
@@ -88,6 +101,55 @@ export function buildInvestigationReport(params: {
     `#### 🧭 Recommended Next Investigative Steps`,
     nextSteps.map((step, idx) => `${idx + 1}. ${step}`).join('\n'),
     ``,
+    `#### 📚 Historical Precedents & Outcome Intelligence`,
+    `> *Contextual Intelligence Only: Historical precedents provide contextual reference and never prove current root cause, blast radius, or remediation safety.*`,
+    historicalPrecedentsNotice ? `*(Notice: ${historicalPrecedentsNotice})*` : '',
+    historicalPrecedents.length > 0
+      ? historicalPrecedents
+          .map((p) => {
+            const out = p.historicalOutcome;
+            const lines: string[] = [
+              `- **Precedent:** \`${p.incidentId}\` — [${p.matchType} | Match Score: ${(p.overallScore * 100).toFixed(0)}%] — Status: \`${out.currentStatus}\``,
+              `  - **Repository:** \`${p.canonicalRepository}\``,
+              `  - **Relevance:** ${p.relevanceExplanation}`,
+              `  - **Prior Root Cause:** ${out.rootCause}`,
+              `  - **Prior Fix:** ${out.fixSummary}`,
+              `  - **PR Reference:** ${out.prLink || '*(None recorded)*'}`,
+              `  - **Provenance:** \`${out.evidenceProvenanceSummary.verificationType}\`${out.evidenceProvenanceSummary.displayLabel ? ` (${out.evidenceProvenanceSummary.displayLabel})` : ''}`
+            ];
+
+            // Mandatory regression warnings
+            if (out.isRegressed) {
+              lines.push(
+                `  > ⚠️ **CRITICAL WARNING:** This historical resolution subsequently **REGRESSED** in production (Advisory: \`${out.recommendationAdvisory}\`). Do NOT reuse as a proven fix.`
+              );
+            } else if (out.hasHistoricalRegression) {
+              lines.push(
+                `  > ⚠️ **HISTORICAL REGRESSION WARNING:** This incident experienced a prior regression in its lifecycle before resolution was verified with fresh evidence.`
+              );
+            } else if (out.currentStatus === 'PARTIAL_RESOLUTION') {
+              lines.push(
+                `  > ℹ️ **PARTIAL MITIGATION ONLY:** Remediation provides partial stabilization; remaining defects were not fully resolved.`
+              );
+            } else if (out.currentStatus === 'UNVERIFIED_PROPOSAL') {
+              lines.push(
+                `  > ℹ️ **UNVERIFIED PROPOSAL:** This historical proposal was never independently verified or confirmed.`
+              );
+            }
+
+            if (out.evidenceProvenanceSummary.missingOrUnavailableEvidence.length > 0) {
+              lines.push(
+                `  - **Missing Historical Evidence:** ${out.evidenceProvenanceSummary.missingOrUnavailableEvidence.join('; ')}`
+              );
+            }
+
+            return lines.join('\n');
+          })
+          .join('\n\n')
+      : !historicalPrecedentsNotice
+      ? '*(No similar historical incidents found in repository memory)*'
+      : '',
+    ``,
     `---`,
     `*Notice: Investigation report published for engineering review. No approval challenge or patch was automatically generated.*`
   ];
@@ -102,6 +164,8 @@ export function buildInvestigationReport(params: {
     diagnosis,
     riskEvaluation,
     impact,
+    historicalPrecedents,
+    ...(historicalPrecedentsNotice ? { historicalPrecedentsNotice } : {}),
     nextSteps,
     formattedMarkdown
   };

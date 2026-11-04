@@ -1,7 +1,4 @@
 import {
-  SwitchPingFrameSchema,
-  SwitchConnectionStateFrameSchema,
-  SwitchEvictedFrameSchema,
   SwitchDomainEventFrameSchema,
   SwitchMessagePayloadSchema,
   SwitchCommandPayloadSchema,
@@ -38,38 +35,37 @@ export function normalizeSwitchFrame(
   }
 
   const obj = parsed as Record<string, unknown>;
+  const frameType = (obj['type'] ?? obj['event']) as string | undefined;
 
   // 1. Control Frame: Ping
-  if (obj['type'] === 'ping') {
-    const pingCheck = SwitchPingFrameSchema.safeParse(obj);
-    if (pingCheck.success) {
-      return { type: 'PING' };
-    }
+  if (frameType === 'ping') {
+    return { type: 'PING' };
   }
 
   // 2. Control Frame: Connection State
-  if (obj['type'] === 'connection_state') {
-    const stateCheck = SwitchConnectionStateFrameSchema.safeParse(obj);
-    if (stateCheck.success) {
-      return {
-        type: 'CONNECTION_STATE',
-        rooms: stateCheck.data.rooms,
-        cursor: stateCheck.data.cursor,
-        generation: stateCheck.data.generation
-      };
-    }
+  if (frameType === 'connection_state') {
+    const data = (obj['data'] && typeof obj['data'] === 'object' ? obj['data'] : obj) as Record<string, unknown>;
+    const rooms = Array.isArray(data['rooms']) ? (data['rooms'] as string[]) : [];
+    const cursor = typeof data['cursor'] === 'number' ? data['cursor'] : 0;
+    const generation = data['generation'] !== undefined ? String(data['generation']) : '';
+    return {
+      type: 'CONNECTION_STATE',
+      rooms,
+      cursor,
+      generation
+    };
   }
 
   // 3. Control Frame: Evicted
-  if (obj['type'] === 'evicted') {
-    const evictCheck = SwitchEvictedFrameSchema.safeParse(obj);
-    if (evictCheck.success) {
-      return {
-        type: 'EVICTED',
-        code: evictCheck.data.code,
-        ...(evictCheck.data.reason ? { reason: evictCheck.data.reason } : {})
-      };
-    }
+  if (frameType === 'evicted') {
+    const data = (obj['data'] && typeof obj['data'] === 'object' ? obj['data'] : obj) as Record<string, unknown>;
+    const code = typeof data['code'] === 'string' ? data['code'] : 'unknown';
+    const reason = typeof data['reason'] === 'string' ? data['reason'] : undefined;
+    return {
+      type: 'EVICTED',
+      code,
+      ...(reason ? { reason } : {})
+    };
   }
 
   // 4. Domain Event Frame

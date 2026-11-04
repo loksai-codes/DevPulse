@@ -13,6 +13,29 @@ describe('Switch Protocol Normalization & Frame Validation', () => {
     assert.equal(result.type, 'PING');
   });
 
+  it('normalizes control frame: { event: "ping", data: {} }', () => {
+    const raw = { event: 'ping', data: {} };
+    const result = normalizeSwitchFrame(raw, agentId);
+    assert.equal(result.type, 'PING');
+  });
+
+  it('normalizes control frame: { type: "ping", data: {} }', () => {
+    const raw = { type: 'ping', data: {} };
+    const result = normalizeSwitchFrame(raw, agentId);
+    assert.equal(result.type, 'PING');
+  });
+
+  it('normalizes control frame: { event: "connection_state", data: {} }', () => {
+    const raw = { event: 'connection_state', data: {} };
+    const result = normalizeSwitchFrame(raw, agentId);
+    assert.equal(result.type, 'CONNECTION_STATE');
+    if (result.type === 'CONNECTION_STATE') {
+      assert.deepEqual(result.rooms, []);
+      assert.equal(result.cursor, 0);
+      assert.equal(result.generation, '');
+    }
+  });
+
   it('normalizes control frame: connection_state', () => {
     const raw = {
       type: 'connection_state',

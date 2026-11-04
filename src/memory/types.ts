@@ -129,11 +129,64 @@ export interface HistoricalMatchExplanation {
   distinguishingDifferences: string[]; // Documented divergences
 }
 
+export type ResolutionClassification =
+  | 'VERIFIED_RESOLVED'
+  | 'PARTIAL_RESOLUTION'
+  | 'REGRESSED'
+  | 'UNVERIFIED_PROPOSAL';
+
+export interface HistoricalTransitionSummary {
+  eventId: string;
+  fromStatus?: ResolutionVerificationStatus | undefined;
+  toStatus: ResolutionVerificationStatus;
+  timestamp: string;
+  actor?: {
+    type: 'HUMAN' | 'SENTINEL' | 'SYSTEM';
+    id: string;
+    name: string;
+  } | undefined;
+  evidenceSummary: string;
+  evidenceHash?: string | undefined;
+  provenanceSource?: string | undefined;
+  verificationType?: 'INDEPENDENTLY_VERIFIED' | 'USER_ASSERTION' | undefined;
+  displayLabel?: string | undefined;
+}
+
+export interface HistoricalOutcomeReport {
+  incidentId: string;
+  canonicalRepository: string;
+  currentStatus: ResolutionVerificationStatus;
+  classification: ResolutionClassification;
+  isRegressed: boolean;
+  hasHistoricalRegression: boolean;
+  doNotReuseAsProvenFix: boolean;
+  recommendationAdvisory:
+    | 'PROVEN_FIX_AVAILABLE'
+    | 'PARTIAL_MITIGATION_ONLY'
+    | 'REGRESSED_FIX_DO_NOT_REUSE'
+    | 'UNVERIFIED_PROPOSAL_ONLY';
+  rootCause: string;
+  fixSummary: string;
+  prLink: string;
+  evidenceProvenanceSummary: {
+    verificationType: 'INDEPENDENTLY_VERIFIED' | 'USER_ASSERTION' | 'MIXED' | 'NONE';
+    displayLabel?: string | undefined;
+    hasPassingRegressionTests: boolean;
+    hasMergedPrEvidence: boolean;
+    hasObservabilityProof: boolean;
+    hasHumanConfirmation: boolean;
+    missingOrUnavailableEvidence: string[];
+  };
+  chronologicalTransitions: HistoricalTransitionSummary[];
+  rawHistoryCount: number;
+}
+
 export interface HistoricalIncidentMatch {
   record: IncidentMemoryRecord;
   similarity: HistoricalMatchExplanation;
   verificationStatus: ResolutionVerificationStatus;
   relevanceExplanation: string;
+  outcomeReport: HistoricalOutcomeReport;
 }
 
 export const IncidentMemoryQuerySchema = z.object({
@@ -151,7 +204,8 @@ export const QuarantinedRecordSchema = z.object({
   id: z.string().min(1),
   quarantinedAt: z.string().datetime({ message: 'quarantinedAt must be an ISO-8601 string' }),
   reason: z.string().min(1),
-  rawLineHash: z.string().regex(/^[a-f0-9]{64}$/i, 'rawLineHash must be a 64-character SHA-256 hex string'),
+  // SHA-256 integrity fingerprint of the raw line content excluding line terminators (\r, \n)
+  rawLineHash: z.string().regex(/^[a-f0-9]{64}$/i, 'rawLineHash must be a 64-character SHA-256 hex integrity fingerprint'),
   sanitizedContent: z.string()
 });
 export type QuarantinedRecord = z.infer<typeof QuarantinedRecordSchema>;
