@@ -4,3 +4,7 @@ export * from './utils/path-validator.js';
 export * from './audit/index.js';
 export * from './config/index.js';
 export * from './room/index.js';
+export * from './sentinel/index.js';
+export * from './patch-runner/index.js';
+export * from './approval/index.js';
+export * from './router/index.js';

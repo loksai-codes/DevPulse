@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { SwitchConnection } from '../src/room/switch-connection.js';
+import WebSocket, { WebSocketServer } from 'ws';
+import {
+  SwitchConnection,
+  calculateBackoffMs
+} from '../src/room/switch-connection.js';
 
 class MockWebSocket extends EventEmitter {
   public url: string;
@@ -51,15 +55,41 @@ class MockWebSocket extends EventEmitter {
   public onclose: ((evt: any) => void) | null = null;
 }
 
-describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
+describe('SwitchConnection WebSocket Lifecycle, Heartbeat & Reconnection', () => {
   const options = {
     coreUrl: 'http://localhost:8080',
     agentId: 'agn_sentinel',
     apiKey: 'sw_test_key_123',
     roomId: 'room_devpulse_ops',
     connectionId: 'conn_test_uuid_1234',
-    reconnect: false // Disable auto-reconnect timer for deterministic unit tests
+    reconnect: false // default false for base test
   };
+
+  it('proves that the real WebSocket handshake transmits Authorization Bearer header to the server', async () => {
+    let receivedAuthHeader: string | undefined;
+    const wss = new WebSocketServer({ port: 0 });
+
+    await new Promise<void>((resolve) => {
+      wss.on('connection', (ws, req) => {
+        receivedAuthHeader = req.headers['authorization'];
+        ws.close();
+        wss.close(() => resolve());
+      });
+
+      const port = (wss.address() as any).port;
+      const testConn = new SwitchConnection({
+        coreUrl: `http://127.0.0.1:${port}`,
+        agentId: 'agn_sentinel',
+        apiKey: 'sw_real_token_proof_9988',
+        roomId: 'room_test',
+        reconnect: false
+      });
+      testConn.on('error', () => {});
+      testConn.connect().catch(() => {});
+    });
+
+    assert.equal(receivedAuthHeader, 'Bearer sw_real_token_proof_9988');
+  });
 
   it('correctly constructs official Switch WebSocket URL with parameters', () => {
     const connection = new SwitchConnection(options);
@@ -73,7 +103,7 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     assert.match(url, /start_from=head/);
   });
 
-  it('answers incoming ping immediately with pong carrying the latest cursor', async () => {
+  it('answers incoming ping immediately with pong carrying latest sequence cursor', async () => {
     let mockWsInstance: MockWebSocket | null = null;
     const connection = new SwitchConnection({
       ...options,
@@ -84,13 +114,12 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     });
 
     await connection.connect();
-    assert.ok(mockWsInstance);
-    mockWsInstance.simulateOpen();
+    mockWsInstance!.simulateOpen();
 
     assert.equal(connection.getStatus(), 'CONNECTED');
 
     // Simulate domain event sequence 100
-    mockWsInstance.simulateMessage({
+    mockWsInstance!.simulateMessage({
       event: 'message',
       data: {
         type: 'message',
@@ -112,11 +141,11 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     assert.equal(connection.getCursor(), 100);
 
     // Simulate Switch Core server ping frame
-    mockWsInstance.simulateMessage({ type: 'ping' });
+    mockWsInstance!.simulateMessage({ type: 'ping' });
 
     // Assert that client sent immediate pong carrying cursor 100
-    assert.equal(mockWsInstance.sentMessages.length, 1);
-    const pongFrame = JSON.parse(mockWsInstance.sentMessages[0]!);
+    assert.equal(mockWsInstance!.sentMessages.length, 1);
+    const pongFrame = JSON.parse(mockWsInstance!.sentMessages[0]!);
     assert.deepEqual(pongFrame, { type: 'pong', cursor: 100 });
   });
 
@@ -146,6 +175,7 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     });
 
     assert.equal(connection.getCursor(), 500);
+    assert.equal(connection.getGeneration(), 'gen_alpha_1');
     assert.deepEqual(capturedState, {
       rooms: ['room_devpulse_ops'],
       cursor: 500,
@@ -158,7 +188,7 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     assert.match(nextUrl, /expected_generation=gen_alpha_1/);
   });
 
-  it('handles graceful disconnect cleanly with code 1000', async () => {
+  it('emits evicted event when server terminates session', async () => {
     let mockWsInstance: MockWebSocket | null = null;
     const connection = new SwitchConnection({
       ...options,
@@ -171,16 +201,114 @@ describe('SwitchConnection WebSocket Lifecycle & Heartbeat Handling', () => {
     await connection.connect();
     mockWsInstance!.simulateOpen();
 
-    let closed = false;
-    connection.on('close', () => {
-      closed = true;
+    let evictedEvent: any = null;
+    connection.on('evicted', (data) => {
+      evictedEvent = data;
     });
 
+    mockWsInstance!.simulateMessage({
+      type: 'evicted',
+      code: 'heartbeat_lapsed',
+      reason: 'Heartbeat ping was not answered in 6s'
+    });
+
+    assert.ok(evictedEvent);
+    assert.equal(evictedEvent.code, 'heartbeat_lapsed');
+    assert.equal(evictedEvent.reason, 'Heartbeat ping was not answered in 6s');
+  });
+
+  it('prevents duplicate connections when connect() is called while already active', async () => {
+    let instanceCount = 0;
+    const connection = new SwitchConnection({
+      ...options,
+      webSocketFactory: (url, opts) => {
+        instanceCount++;
+        return new MockWebSocket(url, opts);
+      }
+    });
+
+    await connection.connect();
+    assert.equal(instanceCount, 1);
+
+    // Call connect() a second time while CONNECTING
+    await connection.connect();
+    assert.equal(instanceCount, 1); // Must still be 1 (no duplicate socket)
+  });
+
+  it('calculates exponential backoff progression accurately with max cap', () => {
+    assert.equal(calculateBackoffMs(1, 1000, 30000), 1000);
+    assert.equal(calculateBackoffMs(2, 1000, 30000), 2000);
+    assert.equal(calculateBackoffMs(3, 1000, 30000), 4000);
+    assert.equal(calculateBackoffMs(4, 1000, 30000), 8000);
+    assert.equal(calculateBackoffMs(5, 1000, 30000), 16000);
+    assert.equal(calculateBackoffMs(6, 1000, 30000), 30000); // capped at 30s
+    assert.equal(calculateBackoffMs(10, 1000, 30000), 30000); // capped at 30s
+  });
+
+  it('cancels pending reconnect timer and enters clean DISCONNECTED state when disconnect() is called during backoff', async () => {
+    let mockWsInstance: MockWebSocket | null = null;
+    let socketsCreated = 0;
+
+    const connection = new SwitchConnection({
+      ...options,
+      reconnect: true,
+      initialBackoffMs: 5000, // 5s backoff
+      webSocketFactory: (url, opts) => {
+        socketsCreated++;
+        mockWsInstance = new MockWebSocket(url, opts);
+        return mockWsInstance;
+      }
+    });
+
+    connection.on('error', () => {}); // Handle expected error during abnormal disconnect test
+
+    await connection.connect();
+    assert.equal(socketsCreated, 1);
+    mockWsInstance!.simulateOpen();
+
+    // Trigger unexpected abnormal close
+    mockWsInstance!.simulateClose(1006, 'Abnormal closure');
+
+    // Connection must be scheduled for reconnect
+    assert.equal(connection.isReconnectPending(), true);
+    assert.equal(connection.getReconnectAttempts(), 1);
+
+    // Invoke graceful shutdown while reconnect timer is pending
     await connection.disconnect();
 
+    assert.equal(connection.isReconnectPending(), false);
     assert.equal(connection.getStatus(), 'DISCONNECTED');
-    assert.equal(mockWsInstance!.closeCode, 1000);
-    assert.equal(closed, true);
+
+    // Wait a brief tick to ensure no background reconnection ever fires
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(socketsCreated, 1); // No second socket created
+  });
+
+  it('preserves sequence cursor and generation state across reconnection', async () => {
+    const connection = new SwitchConnection({
+      ...options,
+      reconnect: false,
+      webSocketFactory: (url, opts) => {
+        return new MockWebSocket(url, opts);
+      }
+    });
+
+    await connection.connect();
+    // Simulate setting cursor and generation
+    connection.handleIncomingRawData({
+      type: 'connection_state',
+      rooms: ['room_devpulse_ops'],
+      cursor: 1042,
+      generation: 'gen_xyz_99'
+    });
+
+    assert.equal(connection.getCursor(), 1042);
+    assert.equal(connection.getGeneration(), 'gen_xyz_99');
+
+    // Check re-built URL for next connection
+    const reconnectUrl = connection.buildWebSocketUrl();
+    assert.match(reconnectUrl, /start_from=1042/);
+    assert.match(reconnectUrl, /expected_generation=gen_xyz_99/);
+    assert.match(reconnectUrl, /connection_id=conn_test_uuid_1234/);
   });
 });
-

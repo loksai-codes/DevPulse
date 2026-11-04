@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import WebSocket from 'ws';
 import { normalizeSwitchFrame } from './switch-event-normalizer.js';
 
 export interface SwitchConnectionOptions {
@@ -10,6 +11,8 @@ export interface SwitchConnectionOptions {
   connectionId?: string | undefined;
   reconnect?: boolean | undefined;
   maxReconnectAttempts?: number | undefined;
+  initialBackoffMs?: number | undefined;
+  maxBackoffMs?: number | undefined;
   webSocketFactory?: ((url: string, protocolsOrOptions?: any) => any) | undefined;
 }
 
@@ -20,6 +23,19 @@ export type ConnectionStatus =
   | 'RECONNECTING'
   | 'TERMINATED';
 
+/**
+ * Calculates exponential backoff with jitter-free deterministic caps.
+ */
+export function calculateBackoffMs(
+  attempt: number,
+  initialMs: number = 1000,
+  maxMs: number = 30000
+): number {
+  if (attempt <= 1) return initialMs;
+  const backoff = initialMs * Math.pow(2, attempt - 1);
+  return Math.min(backoff, maxMs);
+}
+
 export class SwitchConnection extends EventEmitter {
   private coreUrl: string;
   private agentId: string;
@@ -28,6 +44,8 @@ export class SwitchConnection extends EventEmitter {
   private connectionId: string;
   private reconnectEnabled: boolean;
   private maxReconnectAttempts: number;
+  private initialBackoffMs: number;
+  private maxBackoffMs: number;
   private webSocketFactory?: ((url: string, protocolsOrOptions?: any) => any) | undefined;
 
   private ws: any = null;
@@ -47,6 +65,8 @@ export class SwitchConnection extends EventEmitter {
     this.connectionId = options.connectionId ?? randomUUID();
     this.reconnectEnabled = options.reconnect ?? true;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+    this.initialBackoffMs = options.initialBackoffMs ?? 1000;
+    this.maxBackoffMs = options.maxBackoffMs ?? 30000;
     this.webSocketFactory = options.webSocketFactory;
   }
 
@@ -58,8 +78,20 @@ export class SwitchConnection extends EventEmitter {
     return this.cursor;
   }
 
+  public getGeneration(): string {
+    return this.generation;
+  }
+
   public getConnectionId(): string {
     return this.connectionId;
+  }
+
+  public getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  public isReconnectPending(): boolean {
+    return this.reconnectTimer !== null;
   }
 
   /**
@@ -86,8 +118,15 @@ export class SwitchConnection extends EventEmitter {
    * Opens the authenticated WebSocket connection to Switch Core.
    */
   public async connect(): Promise<void> {
-    if (this.status === 'CONNECTED' || this.status === 'CONNECTING') {
+    // Prevent duplicate connections if already connected or currently establishing
+    if (this.status === 'CONNECTED' || (this.status === 'CONNECTING' && this.ws)) {
       return;
+    }
+
+    // Cancel any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
     this.intentionallyClosed = false;
@@ -105,8 +144,8 @@ export class SwitchConnection extends EventEmitter {
       if (this.webSocketFactory) {
         this.ws = this.webSocketFactory(url, wsOptions);
       } else {
-        // Use Node 22/24 built-in global WebSocket
-        this.ws = new (globalThis as any).WebSocket(url, wsOptions);
+        // Use verified 'ws' WebSocket client for guaranteed header transmission
+        this.ws = new WebSocket(url, wsOptions);
       }
 
       this.setupSocketListeners();
@@ -136,9 +175,12 @@ export class SwitchConnection extends EventEmitter {
     };
 
     this.ws.onclose = (event: any) => {
+      const closeCode = event?.code ?? 1006;
+      const closeReason = event?.reason ?? 'Socket closed';
       this.ws = null;
+
       if (!this.intentionallyClosed) {
-        this.handleSocketFailure(new Error(`WebSocket closed: code=${event.code}, reason=${event.reason ?? 'none'}`));
+        this.handleSocketFailure(new Error(`WebSocket closed unexpectedly: code=${closeCode}, reason=${closeReason}`));
       } else {
         this.status = 'DISCONNECTED';
         this.emit('status', this.status);
@@ -193,7 +235,7 @@ export class SwitchConnection extends EventEmitter {
    * Sends the official Pong frame: {"type": "pong", "cursor": <cursor>}
    */
   public sendPong(): void {
-    if (this.ws && this.ws.readyState === 1) { // 1 = OPEN
+    if (this.ws && (this.ws.readyState === 1 || this.ws.readyState === WebSocket.OPEN)) {
       const pongFrame = JSON.stringify({
         type: 'pong',
         cursor: this.cursor
@@ -224,9 +266,10 @@ export class SwitchConnection extends EventEmitter {
     }
 
     this.reconnectAttempts++;
-    const backoffMs = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
+    const backoffMs = calculateBackoffMs(this.reconnectAttempts, this.initialBackoffMs, this.maxBackoffMs);
 
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect().catch(() => {});
     }, backoffMs);
   }

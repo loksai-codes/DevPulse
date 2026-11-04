@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, appendFileSync, unlinkSync } from 'node:fs';
 import * as path from 'node:path';
 import type { FilePatch } from '../types/remediation.js';
 import type { HumanApproval } from '../types/human-approval.js';
@@ -159,8 +159,7 @@ export class ApprovalNonceTracker {
     this.consumedApprovals.add(key);
 
     if (this.persistenceFilePath) {
-      // Append non-blocking to persistent file
-      fs.appendFile(this.persistenceFilePath, key + '\n', 'utf8').catch(() => {});
+      appendFileSync(this.persistenceFilePath, key + '\n', 'utf8');
     }
     return true;
   }
@@ -172,7 +171,9 @@ export class ApprovalNonceTracker {
   public clear(): void {
     this.consumedApprovals.clear();
     if (this.persistenceFilePath) {
-      fs.unlink(this.persistenceFilePath).catch(() => {});
+      try {
+        unlinkSync(this.persistenceFilePath);
+      } catch {}
     }
   }
 }

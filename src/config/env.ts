@@ -9,6 +9,14 @@ export const EnvSchema = z.object({
     .string()
     .min(1, 'SWITCH_AGENT_ID cannot be empty')
     .default('agn_devpulse_sentinel'),
+  SWITCH_SENTINEL_AGENT_ID: z
+    .string()
+    .min(1, 'SWITCH_SENTINEL_AGENT_ID cannot be empty')
+    .default('agn_devpulse_sentinel'),
+  SWITCH_RUNNER_AGENT_ID: z
+    .string()
+    .min(1, 'SWITCH_RUNNER_AGENT_ID cannot be empty')
+    .default('agn_devpulse_runner'),
   SWITCH_AGENT_API_KEY: z
     .string()
     .min(1, 'SWITCH_AGENT_API_KEY cannot be empty'),
@@ -51,6 +59,8 @@ export function loadConfig(overrides: Partial<Record<keyof DevPulseConfig, unkno
   const envSource = {
     SWITCH_CORE_URL: overrides.SWITCH_CORE_URL ?? process.env['SWITCH_CORE_URL'],
     SWITCH_AGENT_ID: overrides.SWITCH_AGENT_ID ?? process.env['SWITCH_AGENT_ID'],
+    SWITCH_SENTINEL_AGENT_ID: overrides.SWITCH_SENTINEL_AGENT_ID ?? process.env['SWITCH_SENTINEL_AGENT_ID'] ?? overrides.SWITCH_AGENT_ID ?? process.env['SWITCH_AGENT_ID'],
+    SWITCH_RUNNER_AGENT_ID: overrides.SWITCH_RUNNER_AGENT_ID ?? process.env['SWITCH_RUNNER_AGENT_ID'],
     SWITCH_AGENT_API_KEY: overrides.SWITCH_AGENT_API_KEY ?? process.env['SWITCH_AGENT_API_KEY'],
     SWITCH_ROOM_ID: overrides.SWITCH_ROOM_ID ?? process.env['SWITCH_ROOM_ID'],
     MAINTAINER_ALLOWLIST: overrides.MAINTAINER_ALLOWLIST ?? process.env['MAINTAINER_ALLOWLIST'],
@@ -63,4 +73,3 @@ export function loadConfig(overrides: Partial<Record<keyof DevPulseConfig, unkno
 
   return EnvSchema.parse(envSource);
 }
-
