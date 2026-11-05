@@ -127,6 +127,7 @@ export class ChallengeTracker {
     }
 
     if (
+      challenge.allowedMaintainerIds &&
       challenge.allowedMaintainerIds.length > 0 &&
       !challenge.allowedMaintainerIds.includes(userId)
     ) {

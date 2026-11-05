@@ -1,10 +1,14 @@
 node_modules/
 dist/
-logs/test-audit.jsonl
+logs/
 *.log
 .DS_Store
 .env
 data/
 logs/
 
+
+.env
+.env.*
+!.env.example
 

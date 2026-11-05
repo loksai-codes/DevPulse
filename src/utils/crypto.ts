@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import { promises as fs, appendFileSync, unlinkSync } from 'node:fs';
+import { promises as fs, appendFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import type { FilePatch } from '../types/remediation.js';
 import type { HumanApproval } from '../types/human-approval.js';
@@ -136,6 +136,7 @@ export class ApprovalNonceTracker {
   public async init(): Promise<void> {
     if (!this.persistenceFilePath) return;
     try {
+      await fs.mkdir(path.dirname(this.persistenceFilePath), { recursive: true });
       const content = await fs.readFile(this.persistenceFilePath, 'utf8');
       const lines = content.trim().split('\n').filter(Boolean);
       for (const line of lines) {
@@ -159,6 +160,7 @@ export class ApprovalNonceTracker {
     this.consumedApprovals.add(key);
 
     if (this.persistenceFilePath) {
+      mkdirSync(path.dirname(this.persistenceFilePath), { recursive: true });
       appendFileSync(this.persistenceFilePath, key + '\n', 'utf8');
     }
     return true;

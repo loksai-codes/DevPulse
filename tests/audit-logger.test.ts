@@ -10,6 +10,7 @@ describe('AuditLogger (Append-Only JSONL with Hash Chaining)', () => {
   let logger: AuditLogger;
 
   beforeEach(async () => {
+    await fs.mkdir(path.resolve('./logs'), { recursive: true });
     logger = new AuditLogger({ filePath: testLogPath });
     await logger.clear();
   });

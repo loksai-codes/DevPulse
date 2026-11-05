@@ -30,6 +30,7 @@ describe('Security Hardening & Threat Verification', () => {
   let logger: AuditLogger;
 
   beforeEach(async () => {
+    await fs.mkdir(path.resolve('./logs'), { recursive: true });
     logger = new AuditLogger({ filePath: testLogPath });
     await logger.clear();
   });

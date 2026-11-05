@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevPulse incident monitor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M2 18h7l3-9 5 16 3-7h10' fill='none' stroke='%232450D8' stroke-width='3' stroke-linejoin='round' stroke-linecap='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #F2F4F6;
+    --surface: #FFFFFF;
+    --ink: #16202A;
+    --muted: #5A6876;
+    --line: #D5DCE3;
+    --pulse: #2450D8;
+    --pulse-soft: rgba(36, 80, 216, 0.12);
+    --ok: #1C7C52;
+    --alert: #C63D2F;
+    --hold: #A86A12;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", Consolas, "Cascadia Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0E151C;
+      --surface: #151F29;
+      --ink: #E4EAF0;
+      --muted: #93A2B1;
+      --line: #2A3846;
+      --pulse: #7E9CFF;
+      --pulse-soft: rgba(126, 156, 255, 0.14);
+      --ok: #4CC38A;
+      --alert: #FF7A6B;
+      --hold: #E3A945;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--pulse); outline-offset: 2px; }
+
+  /* Top bar */
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px;
+    padding: 14px clamp(16px, 4vw, 40px);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; margin-right: auto; }
+  .brand svg { width: 26px; height: 26px; }
+  .brand small { font-weight: 400; color: var(--muted); font-size: 14px; }
+  .picker { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  select {
+    font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; max-width: 60vw;
+  }
+  .chain {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .chain::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .chain.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .chain.bad { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 50%, var(--line)); }
+
+  main { padding: 28px clamp(16px, 4vw, 40px) 40px; max-width: 1280px; margin: 0 auto; }
+
+  .banner {
+    display: none; margin-bottom: 20px; padding: 12px 16px; border-radius: 8px;
+    background: color-mix(in srgb, var(--alert) 12%, var(--surface)); color: var(--ink);
+    border-left: 4px solid var(--alert);
+  }
+  .banner.show { display: block; }
+
+  /* Pulse section: the one bold element */
+  .pulse { margin-bottom: 32px; }
+  .headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 4px; }
+  h1 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .state { font-size: 15px; font-weight: 500; padding: 3px 10px; border-radius: 999px; background: var(--pulse-soft); color: var(--pulse); }
+  .state.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .state.bad { background: color-mix(in srgb, var(--alert) 14%, transparent); color: var(--alert); }
+  .state.hold { background: color-mix(in srgb, var(--hold) 16%, transparent); color: var(--hold); }
+  .summary { color: var(--muted); margin: 0 0 20px; max-width: 70ch; font-size: 16px; }
+
+  .monitor {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    overflow-x: auto;
+  }
+  .monitor-inner { min-width: 760px; padding: 8px 8px 16px; }
+  #trace { display: block; width: 100%; height: 150px; }
+  #trace .grid { stroke: var(--line); stroke-width: 1; }
+  #trace .done { fill: none; stroke: var(--pulse); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  #trace .todo { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 6; opacity: .6; }
+  #trace .beat { fill: var(--pulse); }
+  #trace .beat.bad { fill: var(--alert); }
+  #trace .ring { fill: none; stroke: var(--hold); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: ring 1.6s ease-out infinite; }
+  #trace .now { fill: var(--hold); }
+  @keyframes ring { from { transform: scale(.6); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #trace .ring { animation: none; opacity: .6; } }
+
+  .stages {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(8, 1fr); counter-reset: stage;
+  }
+  .stages li { padding: 0 8px; text-align: center; counter-increment: stage; }
+  .stages .name { display: block; font-weight: 500; font-size: 14px; line-height: 1.3; }
+  .stages .name::before { content: counter(stage) ". "; color: var(--muted); font-weight: 400; }
+  .stages .when { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .stages li.done .when { color: var(--ok); }
+  .stages li.bad .name, .stages li.bad .when { color: var(--alert); }
+  .stages li.current .when { color: var(--hold); font-weight: 500; }
+
+  /* Lower area */
+  .lower { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  @media (max-width: 900px) { .lower { grid-template-columns: 1fr; } }
+  h2 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+
+  .feed { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
+  .feed li { position: relative; }
+  .feed button {
+    all: unset; box-sizing: border-box; display: grid; width: 100%; cursor: pointer;
+    grid-template-columns: max-content 1fr auto; gap: 2px 12px; align-items: baseline;
+    padding: 10px 12px 10px 18px; border-radius: 0 8px 8px 0;
+  }
+  .feed button:hover { background: var(--surface); }
+  .feed button[aria-pressed="true"] { background: var(--surface); box-shadow: inset 3px 0 0 var(--pulse); }
+  .feed button:focus-visible { outline: 2px solid var(--pulse); outline-offset: -2px; }
+  .feed li::before {
+    content: ""; position: absolute; left: -6px; top: 17px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--muted);
+  }
+  .feed li.k-SENTINEL::before { border-color: var(--pulse); }
+  .feed li.k-PATCH_RUNNER::before { border-color: var(--ok); }
+  .feed li.k-HUMAN::before { border-color: var(--hold); background: var(--hold); }
+  .feed li.ok::before { border-color: var(--ok); background: var(--ok); }
+  .feed li.bad::before { border-color: var(--alert); background: var(--alert); }
+  .feed .t { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .feed .what { font-weight: 500; }
+  .feed .who { grid-column: 2; font-size: 13px; color: var(--muted); }
+  .feed .seq { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .feed li.ok .what { color: var(--ok); }
+  .feed li.bad .what { color: var(--alert); }
+  .feed li.routine .what { font-weight: 400; color: var(--muted); }
+  .feed li.routine::before { width: 6px; height: 6px; left: -4px; top: 19px; }
+
+  .detail { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; position: sticky; top: 16px; }
+  .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 14px; font-size: 14px; }
+  .detail dt { color: var(--muted); }
+  .detail dd { margin: 0; overflow-wrap: anywhere; }
+  .hash { font-family: var(--mono); font-size: 12.5px; }
+  pre {
+    margin: 0; padding: 12px; border-radius: 8px; background: var(--bg);
+    font: 12.5px/1.5 var(--mono); overflow: auto; max-height: 340px; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .empty { color: var(--muted); padding: 18px 0; max-width: 60ch; }
+  .empty code { font-family: var(--mono); font-size: 13px; background: var(--surface); padding: 2px 6px; border-radius: 4px; }
+
+  footer { color: var(--muted); font-size: 13px; padding: 0 clamp(16px, 4vw, 40px) 28px; max-width: 1280px; margin: 0 auto; }
+  footer code { font-family: var(--mono); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 18h7l3-9 5 16 3-7h10" fill="none" stroke="var(--pulse)" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    DevPulse <small>incident monitor</small>
+  </div>
+  <label class="picker">Incident
+    <select id="incident" aria-label="Choose an incident"><option value="">Latest incident</option></select>
+  </label>
+  <span id="chain" class="chain" role="status">Checking audit chain</span>
+</header>
+
+<main>
+  <div id="banner" class="banner" role="alert"></div>
+
+  <section class="pulse" aria-labelledby="inc-title">
+    <div class="headline">
+      <h1 id="inc-title">Waiting for the first incident</h1>
+      <span id="inc-state" class="state" hidden></span>
+    </div>
+    <p id="inc-summary" class="summary">When an alert reaches the Switch room, each step the agents take shows up here as it happens.</p>
+    <div class="monitor">
+      <div class="monitor-inner">
+        <svg id="trace" viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Incident progress"></svg>
+        <ol id="stages" class="stages"></ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="lower">
+    <div>
+      <h2>What happened</h2>
+      <ol id="feed" class="feed" aria-label="Audit entries for this incident, newest first"></ol>
+      <p id="feed-empty" class="empty">No audit entries yet. Report an incident in the Switch room, or run <code>npm run demo:audit</code> to record a sample run.</p>
+    </div>
+    <aside class="detail" aria-labelledby="detail-title">
+      <h2 id="detail-title">Entry details</h2>
+      <div id="detail"><p class="empty">Select an entry to see its full record and hashes.</p></div>
+    </aside>
+  </section>
+</main>
+
+<footer id="foot">Connecting to the dashboard server.</footer>
+
+<script>
+(() => {
+  const STAGES = [
+    { key: 'received',  name: 'Alert received' },
+    { key: 'analyzed',  name: 'Sentinel investigated' },
+    { key: 'memory',    name: 'Memory checked' },
+    { key: 'requested', name: 'Approval requested' },
+    { key: 'approved',  name: 'Human approved' },
+    { key: 'executed',  name: 'Patch run in sandbox' },
+    { key: 'verified',  name: 'Tests verified' },
+    { key: 'recorded',  name: 'Audit chain sealed' }
+  ];
+
+  const WAITING_TEXT = {
+    analyzed: 'Sentinel is investigating the alert.',
+    memory: 'Checking incident memory for similar past failures.',
+    requested: 'Sentinel is preparing a fix proposal for approval.',
+    approved: 'Waiting for a maintainer to approve the fix in the Switch room.',
+    executed: 'Approved. The Runner is applying the patch in an isolated container.',
+    verified: 'Running the test suite in the sandbox.',
+    recorded: 'Finishing the audit record.'
+  };
+
+  const ACTOR_LABEL = { SENTINEL: 'Sentinel', PATCH_RUNNER: 'Patch & Test Runner', HUMAN: 'Maintainer', SYSTEM: 'System' };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const humanize = (a) => { const s = String(a).replace(/[_.]+/g, ' ').trim().toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+  // Recursively search a payload for keys matching a pattern.
+  function findKey(obj, re, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 6) return undefined;
+    for (const [k, v] of Object.entries(obj)) {
+      if (re.test(k)) return v;
+      const inner = findKey(v, re, depth + 1);
+      if (inner !== undefined) return inner;
+    }
+    return undefined;
+  }
+  const mentions = (obj, re) => { try { return re.test(JSON.stringify(obj)); } catch { return false; } };
+
+  const REJECT_RE = /REJECT|DENIED|FORBIDDEN|UNAUTHORI[SZ]ED|BLOCKED|DROPPED|ORPHANED|IMPERSONATION|MISMATCH/i;
+  // EVENT_ROUTED entries name their outcome in the payload; show it instead of the generic label.
+  const label = (e) => {
+    if (/^EVENT_ROUTED$/i.test(e.action)) {
+      const out = findKey(e.payload, /^(action|result|outcome)$/i);
+      if (typeof out === 'string' && out) return `Router: ${humanize(out).toLowerCase()}`;
+      const kind = findKey(e.payload, /^kind$/i);
+      if (typeof kind === 'string' && kind) return `${humanize(kind)} received`;
+    }
+    return humanize(e.action);
+  };
+  const isRejection = (e) => REJECT_RE.test(e.action)
+    || REJECT_RE.test(String(findKey(e.payload, /^(action|result|outcome)$/i) || ''))
+    || (/^EVENT_ROUTED$/i.test(e.action) && mentions(e.payload, /"[A-Z_]*(REJECT|DROPPED|FORBIDDEN)[A-Z_]*"/i));
+  const isApproved = (e) => !isRejection(e) && (
+    findKey(e.payload, /^outcome$/i) === 'approved'
+    || /APPROV(ED|AL_(GRANTED|VERIFIED|ACCEPTED|CONSUMED))/i.test(e.action)
+    || (/^EVENT_ROUTED$/i.test(e.action) && mentions(e.payload, /TASK_APPROVED|APPROVAL_ACCEPTED/i))
+  );
+  // Bookkeeping entries: shown in the timeline, but quieter.
+  const isRoutine = (e) => /^(AGENT_STATUS_TRACKED|MODIFY)$/i.test(e.action)
+    || (/^EVENT_ROUTED$/i.test(e.action) && !isRejection(e) && stagesOf(e).length === 0 && !isApprovalCommand(e) && findKey(e.payload, /^kind$/i) === undefined);
+  const isApprovalCommand = (e) => /^EVENT_ROUTED$/i.test(e.action) && /APPROV/i.test(String(findKey(e.payload, /^kind$/i) || ''));
+  const isFailure = (e) => {
+    if (/FAIL|ERROR/i.test(e.action)) return true;
+    const code = findKey(e.payload, /^exitCode$/i);
+    return typeof code === 'number' && code !== 0;
+  };
+
+  // Which workflow stages does this entry complete? Rejections never complete a stage.
+  function stagesOf(e) {
+    const a = String(e.action).toUpperCase();
+    if (isRejection(e)) return [];
+    const out = [];
+    if (/^EVENT_ROUTED$/.test(a)) {
+      if (mentions(e.payload, /INCIDENT_INVESTIGATED/)) out.push('received', 'analyzed');
+      if (/INCIDENT|ALERT/i.test(String(findKey(e.payload, /^kind$/i) || ''))) out.push('received');
+      if (mentions(e.payload, /TASK_APPROVED|APPROVAL_ACCEPTED/)) out.push('approved');
+      return out;
+    }
+    if (/^INCIDENT_|ALERT|RECEIV|INGEST/.test(a)) out.push('received');
+    if (/INVESTIGAT|ANALY|DIAGNOS/.test(a)) out.push('analyzed');
+    if (/MEMORY|PRECEDENT|RECALL|SIMILAR/.test(a) || (/INVESTIGAT/.test(a) && (findKey(e.payload, /precedent/i) !== undefined || mentions(e.payload, /historical|INC-\d{4}-/i)))) out.push('memory');
+    if (/CHALLENGE_(CREATED|ISSUED|EMITTED)|APPROVAL_REQUEST|REMEDIATION_PROPOS|PROPOSAL/.test(a)
+      || (/INVESTIGAT/.test(a) && (findKey(e.payload, /challenge/i) !== undefined || mentions(e.payload, /appr_[a-f0-9]+/)))) out.push('requested');
+    if ((e.actor && e.actor.type === 'HUMAN' && /APPROV/.test(a))
+      || /APPROV(ED|AL_(GRANTED|VERIFIED|ACCEPTED|CONSUMED))|CHALLENGE_CONSUMED/.test(a)
+      || findKey(e.payload, /^outcome$/i) === 'approved') out.push('approved');
+    if (/TASK_(ACCEPTED|DISPATCH|RECEIVED|EXECUTION_START)|RUNNER_TASK_PROCESSED|SANDBOX|PATCH_APPL|EXECUTION_START/.test(a)) out.push('executed');
+    if (/EXECUTION_COMPLETE|TEST|VERIFICATION_(PASS|COMPLETE)/.test(a)) out.push('executed', 'verified');
+    return out;
+  }
+
+  const UNLINKED = 'Not linked to an incident';
+  let data = null;
+  let selectedIncident = '';
+  let selectedEntryId = null;
+
+  function groupByIncident(entries) {
+    // Entries without an incident ID (like EVENT_ROUTED) belong to the incident
+    // being handled at that moment: the previous linked entry, or the next one for leading entries.
+    const own = entries.map((e) => e.incidentId || findKey(e.payload, /^incidentId$/i) || null);
+    const ids = own.slice();
+    let last = null;
+    for (let i = 0; i < ids.length; i++) { if (ids[i]) last = ids[i]; else if (last) ids[i] = last; }
+    let next = null;
+    for (let i = ids.length - 1; i >= 0; i--) { if (ids[i]) next = ids[i]; else if (next) ids[i] = next; }
+    const groups = new Map();
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      const id = ids[i] || UNLINKED;
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(e);
+    }
+    return groups;
+  }
+
+  function computeProgress(entries, chainValid) {
+    const done = {};      // stage -> entry
+    const bad = {};       // stage -> entry
+    for (const e of entries) {
+      for (const s of stagesOf(e)) {
+        if (s === 'verified' && isFailure(e)) bad[s] = bad[s] || e;
+        else done[s] = done[s] || e;
+      }
+    }
+    // Fill earlier stages implied by later ones (an approval implies a request, and so on),
+    // but only for stages that have no logged event of their own. Those show "Not logged".
+    const keys = STAGES.map((s) => s.key);
+    if (entries.length) done.received = done.received || entries[0];
+    let lastIdx = -1;
+    keys.forEach((k, i) => { if (done[k] || bad[k]) lastIdx = i; });
+    const implied = {};
+    for (let i = 0; i < lastIdx; i++) if (!done[keys[i]] && !bad[keys[i]]) implied[keys[i]] = true;
+    // The Runner only executes after it checks a consumed human approval, so an execution
+    // proves an approval happened. Credit the last approval command sent before it.
+    const inferred = {};
+    const exec = done.executed || done.verified || bad.verified;
+    if (!done.approved && exec) {
+      const cmd = entries.filter((e) => isApprovalCommand(e) && e.sequence < exec.sequence).pop();
+      if (cmd) { done.approved = cmd; inferred.approved = true; delete implied.approved; }
+    }
+    if (done.verified && chainValid) done.recorded = done.verified;
+    return { done, bad, implied, inferred };
+  }
+
+  function drawTrace(state) {
+    const svg = $('trace');
+    const W = 1000, base = 104, n = STAGES.length, col = W / n;
+    const xs = STAGES.map((_, i) => Math.round(col * i + col / 2));
+    let lastDone = -1;
+    STAGES.forEach((s, i) => { if (state[i] === 'done' || state[i] === 'implied' || state[i] === 'bad') lastDone = i; });
+    const current = state.findIndex((s) => s === 'todo');
+
+    const beat = (x, bad) => bad
+      ? `L${x - 26},${base} L${x - 14},${base + 6} L${x - 4},${base - 70} L${x + 6},${base + 34} L${x + 14},${base - 18} L${x + 22},${base}`
+      : `L${x - 26},${base} L${x - 16},${base + 8} L${x - 6},${base - 78} L${x + 4},${base + 30} L${x + 14},${base}`;
+
+    let done = `M0,${base}`;
+    for (let i = 0; i <= lastDone; i++) {
+      done += state[i] === 'implied' ? ` L${xs[i]},${base}` : ' ' + beat(xs[i], state[i] === 'bad');
+    }
+    const stopX = lastDone >= 0 ? xs[lastDone] + 30 : 0;
+    if (lastDone >= 0) done += ` L${stopX},${base}`;
+
+    let grid = '';
+    for (let i = 1; i < n; i++) grid += `<line class="grid" x1="${col * i}" y1="14" x2="${col * i}" y2="140"/>`;
+
+    let marks = '';
+    STAGES.forEach((s, i) => {
+      if (state[i] === 'done') marks += `<circle class="beat" cx="${xs[i]}" cy="${base}" r="4"/>`;
+      if (state[i] === 'bad') marks += `<circle class="beat bad" cx="${xs[i]}" cy="${base}" r="5"/>`;
+    });
+    if (current >= 0 && lastDone >= 0) {
+      marks += `<circle class="ring" cx="${xs[current]}" cy="${base}" r="9"/><circle class="now" cx="${xs[current]}" cy="${base}" r="5"/>`;
+    }
+
+    svg.innerHTML = grid
+      + (lastDone >= 0 ? `<path class="done" d="${done}"/>` : '')
+      + `<path class="todo" d="M${stopX},${base} L${W},${base}"/>`
+      + marks;
+  }
+
+  function render() {
+    if (!data) return;
+    const entries = data.entries || [];
+    const groups = groupByIncident(entries);
+
+    // Incident picker: newest incident first.
+    const ordered = [...groups.entries()].sort((a, b) => {
+      const ta = a[1][a[1].length - 1].sequence, tb = b[1][b[1].length - 1].sequence;
+      return tb - ta;
+    });
+    const sel = $('incident');
+    const options = ['<option value="">Latest incident</option>']
+      .concat(ordered.map(([id, list]) => `<option value="${esc(id)}">${esc(id)} (${list.length})</option>`));
+    if (sel.dataset.sig !== options.join('')) { sel.innerHTML = options.join(''); sel.dataset.sig = options.join(''); }
+    sel.value = selectedIncident;
+
+    const linked = ordered.filter(([id]) => id !== UNLINKED);
+    const activeId = selectedIncident || ((linked[0] || ordered[0]) && (linked[0] || ordered[0])[0]);
+    const list = (activeId && groups.get(activeId)) || [];
+
+    // Chain badge.
+    const chain = $('chain');
+    const integ = data.integrity || { valid: true };
+    if (data.readError) {
+      chain.className = 'chain bad';
+      chain.textContent = `Audit log unreadable at line ${data.readError.line ?? '?'}`;
+      chain.title = data.readError.message;
+    } else if (!entries.length) {
+      chain.className = 'chain';
+      chain.textContent = 'No audit entries yet';
+      chain.title = '';
+    } else if (integ.valid) {
+      chain.className = 'chain ok';
+      chain.textContent = `Audit chain intact, ${entries.length} entries`;
+      chain.title = data.keyed ? 'Verified with the HMAC key from .env' : 'Verified with plain SHA-256 (no key set)';
+    } else {
+      chain.className = 'chain bad';
+      chain.textContent = `Audit chain broken at entry ${integ.brokenSequence ?? '?'}`;
+      chain.title = integ.reason || '';
+    }
+
+    // Progress.
+    const prog = computeProgress(list, Boolean(integ.valid && !data.readError));
+    const state = STAGES.map((s) => prog.bad[s.key] ? 'bad' : prog.done[s.key] ? 'done' : prog.implied[s.key] ? 'implied' : 'todo');
+    const currentIdx = state.indexOf('todo');
+    drawTrace(state);
+
+    $('stages').innerHTML = STAGES.map((s, i) => {
+      const cls = state[i] === 'todo' ? (i === currentIdx && list.length ? 'current' : '') : state[i];
+      const e = prog.bad[s.key] || prog.done[s.key];
+      const when = state[i] === 'bad' ? `Failed ${time(e.timestamp)}`
+        : state[i] === 'done' ? (prog.inferred[s.key] ? `${time(e.timestamp)}, confirmed by the Runner` : time(e.timestamp))
+        : state[i] === 'implied' ? 'Not logged separately'
+        : (i === currentIdx && list.length ? 'In progress' : 'Waiting');
+      return `<li class="${cls}"><span class="name">${esc(s.name)}</span><span class="when">${esc(when)}</span></li>`;
+    }).join('');
+
+    // Headline and summary.
+    const title = $('inc-title'), badge = $('inc-state'), summary = $('inc-summary');
+    const rejections = list.filter(isRejection).length;
+    if (!list.length) {
+      title.textContent = 'Waiting for the first incident';
+      badge.hidden = true;
+      summary.textContent = 'When an alert reaches the Switch room, each step the agents take shows up here as it happens.';
+    } else {
+      title.textContent = activeId;
+      badge.hidden = false;
+      let text;
+      if (state.includes('bad')) {
+        badge.className = 'state bad'; badge.textContent = 'Tests failed';
+        text = 'The patch failed its tests in the sandbox. Read the Runner\u2019s report in the Switch room before trying again.';
+      } else if (currentIdx === -1) {
+        badge.className = 'state ok'; badge.textContent = 'Resolved';
+        text = 'Fixed, tested in an isolated container, and approved by a maintainer. Every step is in the audit chain.';
+      } else {
+        const key = STAGES[currentIdx].key;
+        badge.className = key === 'approved' ? 'state hold' : 'state';
+        badge.textContent = key === 'approved' ? 'Needs approval' : 'In progress';
+        text = WAITING_TEXT[key] || 'In progress.';
+      }
+      if (rejections) text += ` ${rejections} approval attempt${rejections > 1 ? 's were' : ' was'} blocked by the security gate.`;
+      summary.textContent = text;
+    }
+
+    // Feed, newest first.
+    const feed = $('feed');
+    $('feed-empty').hidden = list.length > 0;
+    feed.innerHTML = [...list].reverse().map((e) => {
+      const bad = isRejection(e) || isFailure(e);
+      const ok = !bad && isApproved(e);
+      const actor = e.actor || {};
+      const who = `${ACTOR_LABEL[actor.type] || actor.type || 'Unknown'}${actor.name && actor.name !== ACTOR_LABEL[actor.type] ? ': ' + actor.name : ''}`;
+      return `<li class="k-${esc(actor.type || 'X')}${bad ? ' bad' : (ok ? ' ok' : '')}${isRoutine(e) ? ' routine' : ''}">
+        <button type="button" data-id="${esc(e.id)}" aria-pressed="${e.id === selectedEntryId}">
+          <span class="t">${esc(time(e.timestamp))}</span>
+          <span class="what">${esc(label(e))}</span>
+          <span class="seq">#${esc(e.sequence)}</span>
+          <span class="who">${esc(who)}</span>
+        </button></li>`;
+    }).join('');
+
+    // Detail panel.
+    const entry = list.find((e) => e.id === selectedEntryId);
+    $('detail').innerHTML = entry ? `
+      <dl>
+        <dt>Action</dt><dd>${esc(entry.action)}</dd>
+        <dt>By</dt><dd>${esc((entry.actor && entry.actor.name) || '')} (${esc((entry.actor && entry.actor.type) || '')})</dd>
+        <dt>Time</dt><dd>${esc(new Date(entry.timestamp).toLocaleString())}</dd>
+        <dt>Entry</dt><dd>#${esc(entry.sequence)}</dd>
+        <dt>Hash</dt><dd class="hash">${esc(entry.hash)}</dd>
+        <dt>Previous</dt><dd class="hash">${esc(entry.prevHash)}</dd>
+      </dl>
+      <pre>${esc(JSON.stringify(entry.payload, null, 2))}</pre>`
+      : '<p class="empty">Select an entry to see its full record and hashes.</p>';
+
+    $('foot').innerHTML = `Reading <code>${esc(data.file)}</code>. Updated at ${esc(time(data.readAt))}.`;
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/audit', { cache: 'no-store' });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `Server answered ${res.status}`);
+      data = body;
+      $('banner').className = 'banner';
+      render();
+    } catch (err) {
+      const b = $('banner');
+      b.textContent = `Can\u2019t load the audit log: ${err.message}. Check that "npm run dashboard" is still running in PowerShell.`;
+      b.className = 'banner show';
+    }
+  }
+
+  $('incident').addEventListener('change', (ev) => { selectedIncident = ev.target.value; selectedEntryId = null; render(); });
+  $('feed').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-id]');
+    if (!btn) return;
+    selectedEntryId = btn.dataset.id === selectedEntryId ? null : btn.dataset.id;
+    render();
+  });
+
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
