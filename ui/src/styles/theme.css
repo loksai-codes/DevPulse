@@ -1,0 +1,262 @@
+/* DevPulse Clinical Triage Visual System */
+
+:root {
+  --surface-paper: #E8ECE2;
+  --surface-paper-card: #F2F5ED;
+  --surface-paper-lifted: #FAFBF7;
+  --surface-monitor-bezel: #0B120E;
+  --surface-monitor-screen: #040806;
+
+  --ink-primary: #14201A;
+  --ink-secondary: #4E5F55;
+  --ink-tertiary: #7D8F83;
+  --ink-faint: rgba(20, 32, 26, 0.18);
+
+  --grid-line-fine: rgba(20, 32, 26, 0.05);
+  --grid-line-bold: rgba(20, 32, 26, 0.12);
+
+  --border-paper: #C2CBBC;
+  --border-paper-light: #D7DEC2;
+  --border-bezel: #1C2720;
+
+  --phosphor: #2BE59A;
+  --phosphor-dim: rgba(43, 229, 154, 0.22);
+  --phosphor-faint: rgba(43, 229, 154, 0.08);
+
+  --alarm-red: #E5352B;
+  --alarm-red-soft: rgba(229, 53, 43, 0.10);
+  --alarm-red-border: rgba(229, 53, 43, 0.35);
+
+  --amber-pending: #F2A100;
+  --amber-pending-soft: rgba(242, 161, 0, 0.12);
+
+  --memory-violet: #6B4EE6;
+  --memory-violet-soft: rgba(107, 78, 230, 0.10);
+  --memory-violet-border: rgba(107, 78, 230, 0.30);
+
+  --brass-metal: #B8860B;
+  --brass-metal-dark: #664903;
+
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", Consolas, "Cascadia Mono", monospace;
+  --font-sans: "Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --shadow-paper: 0 1px 1px rgba(0, 0, 0, 0.05), 0 3px 8px -2px rgba(20, 32, 26, 0.10);
+  --shadow-paper-hover: 0 2px 4px rgba(0, 0, 0, 0.06), 0 6px 14px -3px rgba(20, 32, 26, 0.14);
+  --shadow-bezel-recessed: inset 0 3px 8px rgba(0, 0, 0, 0.9), inset 0 0 1px rgba(255, 255, 255, 0.08);
+
+  --radius-card: 2px;
+  --radius-bezel: 14px;
+  --radius-round: 50%;
+}
+
+/* Night Shift Mode (Dim Paper-Green) */
+[data-theme="nightshift"] {
+  --surface-paper: #131E18;
+  --surface-paper-card: #1A2820;
+  --surface-paper-lifted: #213229;
+  --surface-monitor-bezel: #070D0A;
+  --surface-monitor-screen: #020504;
+
+  --ink-primary: #DCE5DE;
+  --ink-secondary: #8BA193;
+  --ink-tertiary: #5D7264;
+  --ink-faint: rgba(220, 229, 222, 0.15);
+
+  --grid-line-fine: rgba(220, 229, 222, 0.04);
+  --grid-line-bold: rgba(220, 229, 222, 0.09);
+
+  --border-paper: #283C30;
+  --border-paper-light: #324B3C;
+  --border-bezel: #111A15;
+
+  --phosphor: #2BE59A;
+  --phosphor-dim: rgba(43, 229, 154, 0.25);
+  --phosphor-faint: rgba(43, 229, 154, 0.08);
+
+  --alarm-red: #F0453B;
+  --alarm-red-soft: rgba(240, 69, 59, 0.16);
+  --alarm-red-border: rgba(240, 69, 59, 0.45);
+
+  --amber-pending: #F5AC18;
+  --amber-pending-soft: rgba(245, 172, 24, 0.16);
+
+  --memory-violet: #866DF0;
+  --memory-violet-soft: rgba(134, 109, 240, 0.16);
+  --memory-violet-border: rgba(134, 109, 240, 0.40);
+
+  --brass-metal: #D4A017;
+  --brass-metal-dark: #805E09;
+
+  --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px -2px rgba(0, 0, 0, 0.45);
+  --shadow-paper-hover: 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 18px -2px rgba(0, 0, 0, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  min-height: 100%;
+  background-color: var(--surface-paper);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ECG Paper Millimeter Grid Background */
+.ecg-grid-bg {
+  background-color: var(--surface-paper);
+  background-image:
+    linear-gradient(to right, var(--grid-line-bold) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line-bold) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-line-fine) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line-fine) 1px, transparent 1px);
+  background-size:
+    40px 40px,
+    40px 40px,
+    8px 8px,
+    8px 8px;
+  background-position: 0 0;
+}
+
+/* Typography Classes */
+.font-serif {
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* Paper Artifacts & Physical Cards */
+.paper-card {
+  background: var(--surface-paper-card);
+  border: 1px solid var(--border-paper);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-paper);
+  position: relative;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.paper-card:hover {
+  box-shadow: var(--shadow-paper-hover);
+}
+
+/* Recessed Hardware Monitor Bezels */
+.monitor-bezel {
+  background: var(--surface-monitor-bezel);
+  border: 1px solid var(--border-bezel);
+  border-radius: var(--radius-bezel);
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+.monitor-screen {
+  background: var(--surface-monitor-screen);
+  border-radius: calc(var(--radius-bezel) - 6px);
+  box-shadow: var(--shadow-bezel-recessed);
+  color: var(--phosphor);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  position: relative;
+}
+
+/* CRT Screen Scanline Overlay (Inside Monitor Only) */
+.monitor-screen::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 3px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+/* Physical Stamps */
+.stamp-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--memory-violet);
+  border: 1.5px solid var(--memory-violet);
+  padding: 2px 7px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  background: var(--memory-violet-soft);
+  box-shadow: inset 0 0 0 1px rgba(107, 78, 230, 0.2);
+  transform: rotate(-1.5deg);
+}
+
+.stamp-unverified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-secondary);
+  border: 1px dashed var(--ink-tertiary);
+  padding: 2px 6px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+
+/* Metal Clipboard Clip */
+.clipboard-clip {
+  width: 90px;
+  height: 18px;
+  background: linear-gradient(180deg, #999F99 0%, #767D76 50%, #585F58 100%);
+  border: 1px solid #454B45;
+  border-radius: 3px 3px 1px 1px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+  margin: 0 auto -6px auto;
+  position: relative;
+  z-index: 10;
+}
+
+.clipboard-clip::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 6px;
+  background: #3B423B;
+  border-radius: 2px;
+}
+
+/* Interactive Focus */
+:focus-visible {
+  outline: 2px solid var(--ink-primary);
+  outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

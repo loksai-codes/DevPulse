@@ -4,6 +4,9 @@
   "description": "Autonomous PR and thread engagement engine for Switch Console with persistent incident memory and HITL governance",
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build:ui": "vite build",
+    "preview": "vite preview",
     "build": "tsc",
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -23,13 +26,21 @@
   "author": "DevPulse Team",
   "license": "Apache-2.0",
   "dependencies": {
+    "framer-motion": "^14.9.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "ws": "^8.22.1",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/node": "^22.13.8",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.2.1",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vite": "^8.3.6"
   }
 }

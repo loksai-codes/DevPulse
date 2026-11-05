@@ -353,6 +353,80 @@ Duration:    ~8.1 seconds
 
 ---
 
+## 🏥 Web UI: "The Triage Ward"
+
+DevPulse provides a dedicated clinical triage Web UI built with React, TypeScript, and Vite, adhering strictly to the **Triage Ward** design concept:
+- **Surface**: Warm pale-sage chart paper (`#E8ECE2`) with an 8px/40px millimeter ECG grid background.
+- **Monitors & Bezels**: Dark industrial bezels (`#0B120E`) with internal phosphor green (`#2BE59A`) terminals.
+- **Ward Board**: Horizontal beds displaying live canvas-drawn ECG cardiac waveforms reflecting incident severity.
+- **Patient Chart**: Physical clipboard layout with attending notes, stapled prior case files (`INC-7210`, 94% similarity), unified diff reader with scroll-read tracking, and Docker isolation chamber.
+- **Two-Key Approval Turn**: 1.2-second tactile press-and-hold dial bound to exact `specHash` with a physical 5:00 challenge countdown gauge and complete rejection diagnostics (non-allowlist, bridged Slack/Discord origin, replay attack, diff tamper).
+- **Records Room**: Physical index drawer with `[VERIFIED]` / `[UNVERIFIED]` stamps and similarity search.
+- **Audit Strip Chart**: Continuous paper strip with Web Crypto SHA-256 chain sweep verification and physical paper-tear tamper simulation.
+
+### Running the Web UI
+
+```bash
+# Start local development server (with hot module replacement)
+npm run dev
+
+# Build production assets
+npm run build:ui
+
+# Preview production build
+npm run preview
+```
+
+### Flipping to Live Mode
+
+The Web UI operates in two typed adapter modes: **Mock** and **Live**.
+
+#### 1. Interactive Switch
+You can switch modes at any time inside the UI by clicking the **Mode: MOCK / LIVE** pill in the top header bar.
+
+#### 2. Environment Configuration
+To default the build or dev server to live mode, set `VITE_MODE=live` in your `.env` or execution environment:
+
+```ini
+# .env or .env.local
+VITE_MODE=live
+VITE_DEVPULSE_WS=ws://127.0.0.1:4173/ws
+VITE_DEVPULSE_REST=http://127.0.0.1:4173
+```
+
+### Expected Endpoints & WebSocket Protocol
+
+When running in **Live Mode**, the UI adapter expects the DevPulse daemon to expose the following REST endpoints and WebSocket events:
+
+#### REST Endpoints
+
+| Method | Endpoint | Description | Request Body | Response Payload |
+|---|---|---|---|---|
+| `GET` | `/api/incidents` | List all active admitted incident beds | — | `Incident[]` |
+| `GET` | `/api/memory` | Retrieve indexed archival memory records | — | `MemoryRecord[]` |
+| `GET` | `/api/audit` | Fetch append-only audit trail and integrity check | — | `{ entries: AuditEntry[], integrity: object, keyed: boolean }` |
+| `POST` | `/api/ingest` | Sentinel stack trace ingestion & bed creation | `{ trace: string }` | `Incident` |
+| `POST` | `/api/approve` | Submit two-key maintainer authorization | `{ challengeId: string, approverId: string, origin: string, specHash?: string }` | `{ accepted: true, executionId: string }` \| `{ accepted: false, reason: string, code: ApprovalRejectionCode }` |
+| `POST` | `/api/sandbox/run` | Execute Docker runner for approved incident | `{ incidentId: string }` | `{ lines: string[], exitCode: number, durationMs: number }` |
+| `POST` | `/api/memory` | Archival record creation for resolved incident | `{ signature: string, rootCause: string, fix: string, verified: boolean }` | `MemoryRecord` |
+
+#### WebSocket Real-Time Events (`VITE_DEVPULSE_WS`)
+
+```typescript
+// Incoming message schema from daemon
+type DaemonEvent =
+  | { event: 'incident:admitted'; data: Incident }
+  | { event: 'challenge:issued'; data: { incidentId: string; challenge: IncidentChallenge } }
+  | { event: 'approval:accepted'; data: { incidentId: string; executionId: string } }
+  | { event: 'approval:rejected'; data: { incidentId: string; reason: string; code: string } }
+  | { event: 'sandbox:line'; data: { incidentId: string; line: string } }
+  | { event: 'sandbox:completed'; data: { incidentId: string; exitCode: number; durationMs: number } }
+  | { event: 'memory:recorded'; data: MemoryRecord }
+  | { event: 'audit:appended'; data: AuditEntry };
+```
+
+---
+
 ## 🎙️ Built with Wispr Flow & Google Antigravity
 
 - **Agent Development**: Google Antigravity IDE
