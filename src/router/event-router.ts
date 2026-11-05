@@ -43,6 +43,13 @@ export class EventRouter extends EventEmitter {
     this.idempotency = options.idempotencyTracker ?? new IdempotencyTracker();
     this.canonicalRepository = options.canonicalRepository;
 
+    // Ensure ApprovalHandler has auditLogger if router has one and handler does not
+    if (this.auditLogger && typeof (this.approvalHandler as any).setAuditLogger === 'function') {
+      if (!(this.approvalHandler as any).getAuditLogger?.()) {
+        (this.approvalHandler as any).setAuditLogger(this.auditLogger);
+      }
+    }
+
     this.adapter.on('message', (event: NormalizedRoomEvent) => {
       this.routeEvent(event).catch((err) => this.emit('error', err));
     });
@@ -100,9 +107,11 @@ export class EventRouter extends EventEmitter {
 
     // 4. Route Approval Command -> ApprovalHandler
     if (classification.kind === 'APPROVAL_COMMAND') {
+      const stagedSpec = this.activeSpecs.get(classification.challengeId);
       const approvalResult = await this.approvalHandler.processApprovalCommand(
         event,
-        classification.challengeId
+        classification.challengeId,
+        stagedSpec ? { incidentId: stagedSpec.incidentId, specId: stagedSpec.id } : undefined
       );
 
       // Post approval result back to room
@@ -114,7 +123,7 @@ export class EventRouter extends EventEmitter {
       }
 
       // If approved, retrieve the spec and create an authorized task request for Runner
-      const spec = this.activeSpecs.get(classification.challengeId);
+      const spec = stagedSpec ?? this.activeSpecs.get(classification.challengeId);
       if (!spec) {
         return { handled: true, action: 'APPROVAL_ORPHANED_SPEC' };
       }

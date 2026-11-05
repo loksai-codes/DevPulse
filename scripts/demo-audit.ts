@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     sandboxImage: 'node:20-alpine'
   });
 
-  const approvalHandler = new ApprovalHandler({ maintainerAllowlist: [MAINTAINER_ID], challengeTracker });
+  const approvalHandler = new ApprovalHandler({ maintainerAllowlist: [MAINTAINER_ID], challengeTracker, auditLogger });
 
   // Local adapter: room messages go to this terminal, not to a Switch server.
   const adapter = new SwitchAdapter({

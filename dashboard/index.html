@@ -142,11 +142,13 @@
   .feed li.k-SENTINEL::before { border-color: var(--pulse); }
   .feed li.k-PATCH_RUNNER::before { border-color: var(--ok); }
   .feed li.k-HUMAN::before { border-color: var(--hold); background: var(--hold); }
+  .feed li.ok::before { border-color: var(--ok); background: var(--ok); }
   .feed li.bad::before { border-color: var(--alert); background: var(--alert); }
   .feed .t { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .feed .what { font-weight: 500; }
   .feed .who { grid-column: 2; font-size: 13px; color: var(--muted); }
   .feed .seq { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .feed li.ok .what { color: var(--ok); }
   .feed li.bad .what { color: var(--alert); }
   .feed li.routine .what { font-weight: 400; color: var(--muted); }
   .feed li.routine::before { width: 6px; height: 6px; left: -4px; top: 19px; }
@@ -264,7 +266,14 @@
     }
     return humanize(e.action);
   };
-  const isRejection = (e) => REJECT_RE.test(e.action) || (/^EVENT_ROUTED$/i.test(e.action) && mentions(e.payload, /"[A-Z_]*(REJECT|DROPPED|FORBIDDEN)[A-Z_]*"/));
+  const isRejection = (e) => REJECT_RE.test(e.action)
+    || REJECT_RE.test(String(findKey(e.payload, /^(action|result|outcome)$/i) || ''))
+    || (/^EVENT_ROUTED$/i.test(e.action) && mentions(e.payload, /"[A-Z_]*(REJECT|DROPPED|FORBIDDEN)[A-Z_]*"/i));
+  const isApproved = (e) => !isRejection(e) && (
+    findKey(e.payload, /^outcome$/i) === 'approved'
+    || /APPROV(ED|AL_(GRANTED|VERIFIED|ACCEPTED|CONSUMED))/i.test(e.action)
+    || (/^EVENT_ROUTED$/i.test(e.action) && mentions(e.payload, /TASK_APPROVED|APPROVAL_ACCEPTED/i))
+  );
   // Bookkeeping entries: shown in the timeline, but quieter.
   const isRoutine = (e) => /^(AGENT_STATUS_TRACKED|MODIFY)$/i.test(e.action)
     || (/^EVENT_ROUTED$/i.test(e.action) && !isRejection(e) && stagesOf(e).length === 0 && !isApprovalCommand(e) && findKey(e.payload, /^kind$/i) === undefined);
@@ -291,7 +300,9 @@
     if (/MEMORY|PRECEDENT|RECALL|SIMILAR/.test(a) || (/INVESTIGAT/.test(a) && (findKey(e.payload, /precedent/i) !== undefined || mentions(e.payload, /historical|INC-\d{4}-/i)))) out.push('memory');
     if (/CHALLENGE_(CREATED|ISSUED|EMITTED)|APPROVAL_REQUEST|REMEDIATION_PROPOS|PROPOSAL/.test(a)
       || (/INVESTIGAT/.test(a) && (findKey(e.payload, /challenge/i) !== undefined || mentions(e.payload, /appr_[a-f0-9]+/)))) out.push('requested');
-    if ((e.actor && e.actor.type === 'HUMAN' && /APPROV/.test(a)) || /APPROV(ED|AL_(GRANTED|VERIFIED|ACCEPTED|CONSUMED))|CHALLENGE_CONSUMED/.test(a)) out.push('approved');
+    if ((e.actor && e.actor.type === 'HUMAN' && /APPROV/.test(a))
+      || /APPROV(ED|AL_(GRANTED|VERIFIED|ACCEPTED|CONSUMED))|CHALLENGE_CONSUMED/.test(a)
+      || findKey(e.payload, /^outcome$/i) === 'approved') out.push('approved');
     if (/TASK_(ACCEPTED|DISPATCH|RECEIVED|EXECUTION_START)|RUNNER_TASK_PROCESSED|SANDBOX|PATCH_APPL|EXECUTION_START/.test(a)) out.push('executed');
     if (/EXECUTION_COMPLETE|TEST|VERIFICATION_(PASS|COMPLETE)/.test(a)) out.push('executed', 'verified');
     return out;
@@ -476,9 +487,10 @@
     $('feed-empty').hidden = list.length > 0;
     feed.innerHTML = [...list].reverse().map((e) => {
       const bad = isRejection(e) || isFailure(e);
+      const ok = !bad && isApproved(e);
       const actor = e.actor || {};
       const who = `${ACTOR_LABEL[actor.type] || actor.type || 'Unknown'}${actor.name && actor.name !== ACTOR_LABEL[actor.type] ? ': ' + actor.name : ''}`;
-      return `<li class="k-${esc(actor.type || 'X')}${bad ? ' bad' : ''}${isRoutine(e) ? ' routine' : ''}">
+      return `<li class="k-${esc(actor.type || 'X')}${bad ? ' bad' : (ok ? ' ok' : '')}${isRoutine(e) ? ' routine' : ''}">
         <button type="button" data-id="${esc(e.id)}" aria-pressed="${e.id === selectedEntryId}">
           <span class="t">${esc(time(e.timestamp))}</span>
           <span class="what">${esc(label(e))}</span>
